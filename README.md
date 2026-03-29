@@ -44,7 +44,6 @@ The add-in file (.ppam) and its source version (.pptm) can be found in the [Rele
 ### Mac
 
 - Intel or Apple Silicon Mac
-  - On Apple Silicon based Macs, PowerPoint needs to be run with the setting "Open using Rosetta."
 - PowerPoint for Mac:
   - Office 365, Office 2021 (including LTSC version), Powerpoint 2019, PowerPoint 2016 (Version 16.16.7 190210 or later)
   - SVG support is available for Office 365 and recent retail versions of PowerPoint, including 2019 and 2021. Note that volume licensed (LTSC) versions do not support SVG conversion to Shape, which is required by IguanaTex.
@@ -85,7 +84,7 @@ If you use Homebrew, installation is as simple as:
 
 ```bash
 brew tap tsung-ju/iguanatexmac
-brew install --cask --no-quarantine iguanatexmac latexit-metadata
+brew install --cask iguanatexmac latexit-metadata
 ```
 
 Then follow **5. Verify that paths are set correctly** in the Manual installation instructions below.
