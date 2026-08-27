@@ -1,0 +1,22 @@
+<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui">
+	<ribbon startFromScratch="false">
+		<tabs>
+			<tab id="MycustomTab" label="IguanaTeX">
+				<group id="customGroup1" label="LaTeX">
+					<button id="customButton1" label="New LaTeX display" imageMso="AutoSum" size="large" onAction="NewLatexEquation" />
+					<button id="customButton2" label="Edit LaTeX display" imageMso="Refresh" size="large" onAction="EditLatexEquation" />
+					<button id="customButton4" label="Regenerate selection" imageMso="FileStartWorkflow" size="large" onAction="RegenerateSelection" />
+					<button id="customButton5" label="Convert to Shape" imageMso="QueryBuilder" size="large" onAction="ConvertToVector" />
+					<button id="customButton6" label="Convert to Picture" imageMso="PictureInsertFromFilePowerPoint" size="large" onAction="ConvertToBitmap" />
+				</group>
+				<group id="customGroup2" label="Settings">
+					<button id="customButton3" label="Main Settings" imageMso="ControlToolboxOutlook" size="large" onAction="LoadSettingsForm" />
+				</group>
+				<group id="customGroup3" label="Tools">
+					<button id="customButton7" label="Insert vector graphics file" imageMso="FileOpen" size="large" onAction="InsertVectorGraphicsFile" />
+					<button id="customButton8" label="Generate from default .tex file" imageMso="FileCheckOut" size="large" onAction="LoadDefaultFileAndGenerate" />
+				</group>
+			</tab>
+		</tabs>
+	</ribbon>
+</customUI>
