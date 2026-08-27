@@ -2,9 +2,9 @@ VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} LogFileViewer 
    Caption         =   "Error in Latex Code"
    ClientHeight    =   6960
-   ClientLeft      =   48
-   ClientTop       =   336
-   ClientWidth     =   8844.001
+   ClientLeft      =   45
+   ClientTop       =   330
+   ClientWidth     =   8850.001
    OleObjectBlob   =   "LogFileViewer.frx":0000
    StartUpPosition =   1  'CenterOwner
 End
@@ -13,6 +13,7 @@ Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
+
 Option Explicit
 Private Sub UserForm_Initialize()
     Me.Top = Application.Top + 110

@@ -2,9 +2,9 @@ VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} ErrorForm 
    Caption         =   "Error while running process"
    ClientHeight    =   1848
-   ClientLeft      =   156
-   ClientTop       =   612
-   ClientWidth     =   10068
+   ClientLeft      =   150
+   ClientTop       =   615
+   ClientWidth     =   10080
    OleObjectBlob   =   "ErrorForm.frx":0000
    StartUpPosition =   1  'CenterOwner
 End
@@ -13,6 +13,7 @@ Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
+
 Option Explicit
 
 Private Sub UserForm_Initialize()
