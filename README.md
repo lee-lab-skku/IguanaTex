@@ -19,6 +19,7 @@ The add-in file (.ppam) and its source version (.pptm) can be found in the [Rele
     - [Automatic installation with Homebrew](#automatic-installation-with-homebrew)
     - [Manual installation](#manual-installation)
   - [Other installation settings](#other-installation-settings)
+- [Building Office artifacts on Windows](#building-office-artifacts-on-windows)
 - [Tips, Bugs, and Known Issues](#tips-bugs-and-known-issues)
   - [What to do if something does not work, or does not work as you expected](#what-to-do-if-something-does-not-work-or-does-not-work-as-you-expected)
   - [Debugging an issue](#debugging-an-issue)
@@ -144,6 +145,72 @@ There are 3 files to install:
   - if you are specifying a path or prefix for the LaTeX installation as explained above, that will be used for the Tectonic executable as well, so please make sure Tectonic is under that path or that it can be called with the specified prefix;
   - if you are not specifying any path or prefix, then the Tectonic executable needs to be on your PATH.
 - If you would like to have the option of using an external editor, e.g., when debugging LaTeX source code, you can specify the path to that editor in Main Settings. If you would like to use that editor by default over the IguanaTex edit window, check the "use as default" checkbox.
+
+## Building Office artifacts on Windows
+
+The repository keeps Office inputs as canonical source rather than using a
+checked-in `.pptm` as a template:
+
+- `src/` contains exported VBA modules, classes, forms, and opaque companion
+  `.frx` files.
+- `office/project/` contains VBProject metadata and explicit references.
+- `office/ribbon/` contains the Office 2007 and Office 2010+ RibbonX XML.
+
+PowerPoint must be installed, and **Trust access to the VBA project object
+model** must be enabled. Run these commands in Windows PowerShell 5.1. The
+fresh build creates a new presentation through PowerPoint COM, imports only
+the canonical inputs above, runs the VBE compile gate in an isolated helper
+process, injects RibbonX after PowerPoint closes the file, and performs package
+and PowerPoint reopen validation.
+
+Close unrelated PowerPoint windows before running the automation. If Office COM
+binds to an existing process, the workflow fails safely rather than opening a
+file in, calling `Quit` on, or terminating that process. All fallback process
+termination is restricted to an exact PID and process start time owned by the
+current build.
+
+```powershell
+# Fresh canonical source -> .build\office\IguanaTeX.pptm
+.\scripts\office-build.ps1 build
+
+# Build PPTM and PPAM together
+.\scripts\office-build.ps1 build `
+    -PpamOutputPath .\.build\office\IguanaTeX.ppam
+
+# Non-destructive validation (compile/reopen work happens on a temporary copy)
+.\scripts\office-build.ps1 validate `
+    -InputPath .\.build\office\IguanaTeX.pptm
+
+# Convert an already validated PPTM to PPAM
+.\scripts\office-build.ps1 ppam `
+    -InputPath .\.build\office\IguanaTeX.pptm
+```
+
+Outputs default to the ignored `.build/office/` directory. Use `-OutputPath`
+to choose another disposable target. Existing output is never replaced unless
+`-Force` is supplied. `-CompileTimeoutSeconds` controls the isolated VBE gate;
+`-OfficeTimeoutSeconds` controls individual PowerPoint open, save, add-in, and
+shutdown operations. Both default to 60 seconds.
+
+The PPAM path first compiles and validates its source PPTM. PowerPoint does not
+offer a safe way to target VBE Compile at a loaded add-in project, so the final
+PPAM is instead checked by package validation plus two complete
+load/unload/remove cycles. It is not separately VBE-compiled after `SaveAs`.
+
+The existing VBA sync command remains a separate workflow. It expects exactly
+one non-lock `.pptm` in the repository root and synchronizes that container
+with `src/`:
+
+```powershell
+.\scripts\vba-sync.ps1 import -Prune
+.\scripts\vba-sync.ps1 export
+.\scripts\vba-sync.ps1 verify
+```
+
+Automated validation does not click Ribbon controls. For a release smoke test,
+load the generated PPAM through PowerPoint Add-ins, confirm that the IguanaTeX
+tab contains three groups and eight buttons, then exercise the buttons in an
+environment with the normal IguanaTeX runtime dependencies installed.
 
 ## Tips, Bugs, and Known Issues
 

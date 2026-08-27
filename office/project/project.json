@@ -1,4 +1,6 @@
 {
   "name": "IguanaTeX",
-  "description": "LaTeX Add-In for PowerPoint"
+  "description": "LaTeX Add-In for PowerPoint",
+  "protection": 0,
+  "conditionalCompilationArguments": ""
 }

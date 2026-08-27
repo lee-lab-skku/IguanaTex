@@ -20,27 +20,14 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$VBEXT_CT_STDMODULE = 1
-$VBEXT_CT_CLASSMODULE = 2
-$VBEXT_CT_MSFORM = 3
+Import-Module (
+    Join-Path $PSScriptRoot "lib\IguanaTex.Office.psm1"
+) -Force -DisableNameChecking -ErrorAction Stop
+
 $VBEXT_CT_DOCUMENT = 100
 
 $MSO_TRUE = -1
 $MSO_FALSE = 0
-
-function Release-ComObject {
-    param([object]$Object)
-
-    if ($null -ne $Object) {
-        try {
-            if ([Runtime.InteropServices.Marshal]::IsComObject($Object)) {
-                [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($Object)
-            }
-        }
-        catch {
-        }
-    }
-}
 
 function Get-ProjectLayout {
     param([string]$ScriptDirectory)
@@ -68,17 +55,6 @@ function Get-ProjectLayout {
         ProjectRoot = $projectRoot
         SourceDirectory = $sourceDirectory
         PptmPath = $pptmFiles[0].FullName
-    }
-}
-
-function Get-ComponentExtension {
-    param([int]$Type)
-
-    switch ($Type) {
-        1 { return ".bas" }
-        2 { return ".cls" }
-        3 { return ".frm" }
-        default { return $null }
     }
 }
 
@@ -110,31 +86,6 @@ function Test-FilesEqual {
     }
 
     return ((Get-ExactFileHash $Left) -eq (Get-ExactFileHash $Right))
-}
-
-function Get-SourceFiles {
-    param([string]$Directory)
-
-    $files = @()
-
-    foreach ($pattern in @("*.bas", "*.cls", "*.frm")) {
-        $files += @(Get-ChildItem -LiteralPath $Directory -Filter $pattern -File)
-    }
-
-    $files = @($files | Sort-Object Extension, Name)
-
-    $duplicates = @(
-        $files |
-        Group-Object BaseName |
-        Where-Object { $_.Count -gt 1 }
-    )
-
-    if ($duplicates.Count -gt 0) {
-        $names = ($duplicates.Name -join ", ")
-        throw "Duplicate VBA component names found: $names"
-    }
-
-    return $files
 }
 
 function Normalize-UpdateFrxNames {
@@ -186,7 +137,7 @@ function Export-ProjectToDirectory {
                 $component = $components.Item($i)
                 $type = [int]$component.Type
                 $name = [string]$component.Name
-                $extension = Get-ComponentExtension $type
+                $extension = Get-VbaComponentExtension $type
 
                 if ($null -eq $extension) {
                     if ($type -ne $VBEXT_CT_DOCUMENT) {
@@ -208,197 +159,6 @@ function Export-ProjectToDirectory {
     }
     finally {
         Release-ComObject $components
-    }
-}
-
-function Get-ProjectComponentNames {
-    param([object]$Project)
-
-    $result = @{}
-    $components = $null
-
-    try {
-        $components = $Project.VBComponents
-
-        for ($i = 1; $i -le $components.Count; $i++) {
-            $component = $null
-
-            try {
-                $component = $components.Item($i)
-                $type = [int]$component.Type
-
-                if ($type -in @(
-                    $VBEXT_CT_STDMODULE,
-                    $VBEXT_CT_CLASSMODULE,
-                    $VBEXT_CT_MSFORM
-                )) {
-                    $result[[string]$component.Name] = $type
-                }
-            }
-            finally {
-                Release-ComObject $component
-            }
-        }
-    }
-    finally {
-        Release-ComObject $components
-    }
-
-    return $result
-}
-
-function Remove-ProjectComponent {
-    param(
-        [object]$Project,
-        [string]$Name,
-        [switch]$WhatIfOnly
-    )
-
-    if ($WhatIfOnly) {
-        Write-Host "Would remove component: $Name"
-        return
-    }
-
-    $components = $null
-    $component = $null
-
-    try {
-        $components = $Project.VBComponents
-        $component = $components.Item($Name)
-
-        if ([int]$component.Type -eq $VBEXT_CT_DOCUMENT) {
-            throw "Document component cannot be removed: $Name"
-        }
-
-        $components.Remove($component)
-        Write-Host "Removed component: $Name"
-    }
-    finally {
-        Release-ComObject $component
-        Release-ComObject $components
-    }
-}
-
-function Import-SourceTree {
-    param(
-        [object]$Project,
-        [string]$SourceDirectory,
-        [switch]$PruneComponents,
-        [switch]$WhatIfOnly
-    )
-
-    $sourceFiles = @(Get-SourceFiles $SourceDirectory)
-
-    if ($sourceFiles.Count -eq 0) {
-        throw "No .bas, .cls, or .frm files found in: $SourceDirectory"
-    }
-
-    $sourceNames = @{}
-
-    foreach ($file in $sourceFiles) {
-        $sourceNames[$file.BaseName] = $true
-    }
-
-    $projectNames = Get-ProjectComponentNames $Project
-
-    if ($PruneComponents) {
-        foreach ($name in @($projectNames.Keys | Sort-Object)) {
-            if (-not $sourceNames.ContainsKey($name)) {
-                Remove-ProjectComponent `
-                    -Project $Project `
-                    -Name $name `
-                    -WhatIfOnly:$WhatIfOnly
-            }
-        }
-    }
-
-    foreach ($file in $sourceFiles) {
-        $name = $file.BaseName
-
-        $components = $null
-        $existing = $null
-
-        try {
-            $components = $Project.VBComponents
-
-            try {
-                $existing = $components.Item($name)
-            }
-            catch {
-                $existing = $null
-            }
-
-            if ($null -ne $existing) {
-                if ([int]$existing.Type -eq $VBEXT_CT_DOCUMENT) {
-                    throw "Document component cannot be replaced: $name"
-                }
-
-                if ($WhatIfOnly) {
-                    Write-Host "Would replace: $name <- $($file.Name)"
-                    continue
-                }
-
-                $components.Remove($existing)
-                Release-ComObject $existing
-                $existing = $null
-
-                $newComponent = $null
-
-                try {
-                    $newComponent = $components.Import($file.FullName)
-
-                    Write-Host (
-                        "Replaced: {0} <- {1}" -f
-                        ([string]$newComponent.Name),
-                        $file.Name
-                    )
-
-                    if ([string]$newComponent.Name -ne $name) {
-                        Write-Warning (
-                            "Imported component name differs from file name: {0} -> {1}" -f
-                            $name,
-                            ([string]$newComponent.Name)
-                        )
-                    }
-                }
-                finally {
-                    Release-ComObject $newComponent
-                }
-            }
-            else {
-                if ($WhatIfOnly) {
-                    Write-Host "Would add: $name <- $($file.Name)"
-                    continue
-                }
-
-                $newComponent = $null
-
-                try {
-                    $newComponent = $components.Import($file.FullName)
-
-                    Write-Host (
-                        "Added: {0} <- {1}" -f
-                        ([string]$newComponent.Name),
-                        $file.Name
-                    )
-
-                    if ([string]$newComponent.Name -ne $name) {
-                        Write-Warning (
-                            "Imported component name differs from file name: {0} -> {1}" -f
-                            $name,
-                            ([string]$newComponent.Name)
-                        )
-                    }
-                }
-                finally {
-                    Release-ComObject $newComponent
-                }
-            }
-        }
-        finally {
-            Release-ComObject $existing
-            Release-ComObject $components
-        }
     }
 }
 
@@ -478,7 +238,7 @@ function Sync-ExportedTree {
         }
     }
 
-    $stageFiles = @(Get-SourceFiles $StagingDirectory)
+    $stageFiles = @(Get-VbaSourceFiles $StagingDirectory)
     $stageKeys = @{}
 
     foreach ($file in $stageFiles) {
@@ -496,7 +256,7 @@ function Sync-ExportedTree {
     if ($PruneFiles -and
         (Test-Path -LiteralPath $CanonicalDirectory -PathType Container)) {
 
-        $canonicalTextFiles = @(Get-SourceFiles $CanonicalDirectory)
+        $canonicalTextFiles = @(Get-VbaSourceFiles $CanonicalDirectory)
 
         foreach ($file in $canonicalTextFiles) {
             $key = $file.Name.ToLowerInvariant()
@@ -607,8 +367,8 @@ function Verify-ExportedTree {
 
     $differenceCount = 0
 
-    $stageFiles = @(Get-SourceFiles $StagingDirectory)
-    $canonicalFiles = @(Get-SourceFiles $CanonicalDirectory)
+    $stageFiles = @(Get-VbaSourceFiles $StagingDirectory)
+    $canonicalFiles = @(Get-VbaSourceFiles $CanonicalDirectory)
 
     $stageMap = @{}
     $canonicalMap = @{}
@@ -804,7 +564,7 @@ try {
 
     switch ($Action) {
         "import" {
-            Import-SourceTree `
+            Import-VbaSourceTree `
                 -Project $project `
                 -SourceDirectory $sourceDirectory `
                 -PruneComponents:$Prune `
@@ -918,10 +678,7 @@ finally {
         }
     }
 
-    [GC]::Collect()
-    [GC]::WaitForPendingFinalizers()
-    [GC]::Collect()
-    [GC]::WaitForPendingFinalizers()
+    Invoke-ComGarbageCollection
 }
 
 exit $exitCode
