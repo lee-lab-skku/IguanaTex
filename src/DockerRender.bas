@@ -38,41 +38,60 @@ Public Function ExecuteDockerRenderJob(ByRef Request As DockerRenderRequest, _
                                        ByVal TempPath As String, _
                                        ByVal debugMode As Boolean, _
                                        ByVal WaitTime As Long, _
+                                       ByVal PreserveWorkspace As Boolean, _
                                        ByRef FinalFilename As String, _
                                        ByRef OutputType As String, _
                                        ByRef RunCommand As String, _
                                        ByRef FailureStage As String) As Long
     On Error GoTo HostError
 
+    RunCommand = vbNullString
+    FailureStage = vbNullString
+
+    Dim HostOperation As String
+    Dim HostPath As String
+    Dim DockerWasExecuted As Boolean
+    Dim RootLogPath As String
+    RootLogPath = TempPath & Request.FilePrefix & ".log"
+
+    HostOperation = "build Docker render job"
     Dim JobText As String
     Dim StageCount As Long
     JobText = BuildDockerJob(Request, FinalFilename, OutputType, StageCount)
 
-    Dim JobHostPrefix As String
+    Dim WorkspacePath As String
     Dim PayloadPath As String
     Dim ArtifactPath As String
     Dim FinalPath As String
-    Dim LogPath As String
-    JobHostPrefix = Request.FilePrefix & "_docker_job"
-    PayloadPath = TempPath & Request.FilePrefix & DOCKER_PAYLOAD_SUFFIX
-    ArtifactPath = TempPath & Request.FilePrefix & DOCKER_ARTIFACT_SUFFIX
+    Dim WorkspaceLogPath As String
+
+    HostOperation = "create private render workspace"
+    HostPath = TempPath
+    WorkspacePath = CreateDockerWorkspace(TempPath)
+    PayloadPath = WorkspacePath & Request.FilePrefix & DOCKER_PAYLOAD_SUFFIX
+    ArtifactPath = WorkspacePath & Request.FilePrefix & DOCKER_ARTIFACT_SUFFIX
     FinalPath = TempPath & FinalFilename
-    LogPath = TempPath & Request.FilePrefix & ".log"
+    WorkspaceLogPath = WorkspacePath & Request.FilePrefix & ".log"
 
-    DeleteDockerFile PayloadPath
-    DeleteDockerFile ArtifactPath
     DeleteDockerFile FinalPath
-    WriteToFile TempPath, JobHostPrefix, ".sh", JobText
 
-    WriteDockerPayload PayloadPath, _
-        TempPath & JobHostPrefix & ".sh", _
-        TempPath & Request.FilePrefix & ".tex", _
-        TempPath, Request.FilePrefix
+    HostOperation = "write generated Docker job"
+    HostPath = WorkspacePath & DOCKER_JOB_FILENAME
+    WriteToFile WorkspacePath, "job", ".sh", JobText
+
+    HostOperation = "copy generated LaTeX source"
+    HostPath = TempPath & Request.FilePrefix & ".tex"
+    FileCopy HostPath, WorkspacePath & Request.FilePrefix & ".tex"
+
+    StageDockerAuxiliaryFiles TempPath, WorkspacePath, Request.FilePrefix, _
+        HostOperation, HostPath
+
+    WriteDockerPayload PayloadPath, WorkspacePath, HostOperation, HostPath
 
     Dim DockerCommand As String
-    DockerCommand = BuildDockerCommand()
+    DockerCommand = BuildDockerCommand(GetDockerImageReference())
     RunCommand = DockerCommand & " < " & ShellEscape(PayloadPath) & _
-        " > " & ShellEscape(ArtifactPath) & " 2> " & ShellEscape(LogPath)
+        " > " & ShellEscape(ArtifactPath) & " 2> " & ShellEscape(WorkspaceLogPath)
 
     If debugMode Then
         ShowError vbNullString, RunCommand, "Debug mode", "Docker render job:", "Continue"
@@ -80,11 +99,18 @@ Public Function ExecuteDockerRenderJob(ByRef Request As DockerRenderRequest, _
 
     Dim OverallWaitTime As Long
     OverallWaitTime = DockerOverallWaitTime(WaitTime, StageCount)
-    ExecuteDockerRenderJob = ExecuteRedirected(DockerCommand, TempPath, _
-        PayloadPath, ArtifactPath, LogPath, False, OverallWaitTime)
+    HostOperation = "execute Docker render command"
+    HostPath = WorkspacePath
+    DockerWasExecuted = True
+    ExecuteDockerRenderJob = ExecuteRedirected(DockerCommand, WorkspacePath, _
+        PayloadPath, ArtifactPath, WorkspaceLogPath, False, OverallWaitTime)
 
-    FailureStage = ReadDockerFailureStage(LogPath)
+    FailureStage = ReadDockerFailureStage(WorkspaceLogPath)
+    PublishDockerLog WorkspaceLogPath, RootLogPath
     If ExecuteDockerRenderJob <> 0 Then Exit Function
+
+    HostOperation = "validate Docker output artifact"
+    HostPath = ArtifactPath
     If Not FileExists(ArtifactPath) Then
         FailureStage = "artifact"
         ExecuteDockerRenderJob = 1
@@ -96,17 +122,49 @@ Public Function ExecuteDockerRenderJob(ByRef Request As DockerRenderRequest, _
         Exit Function
     End If
 
+    HostOperation = "publish Docker output artifact"
+    HostPath = ArtifactPath
     Name ArtifactPath As FinalPath
+    If Not PreserveWorkspace Then DeleteDockerWorkspace WorkspacePath
     Exit Function
 
 HostError:
+    Dim HostErrorNumber As Long
+    Dim HostErrorSource As String
+    Dim HostErrorDescription As String
+    Dim HostLogText As String
+    HostErrorNumber = Err.Number
+    HostErrorSource = Err.Source
+    HostErrorDescription = Err.Description
+
     FailureStage = "host-payload"
     ExecuteDockerRenderJob = 1
+    HostLogText = "IguanaTex could not prepare or complete the host side of the Docker render job." & vbLf & _
+        "Failure stage: host-payload" & vbLf & _
+        "Host operation: " & HostOperation & vbLf
+    If HostPath <> vbNullString Then
+        HostLogText = HostLogText & "File/path: " & HostPath & vbLf
+    End If
+    HostLogText = HostLogText & _
+        "VBA error number: " & CStr(HostErrorNumber) & vbLf & _
+        "VBA error source: " & HostErrorSource & vbLf & _
+        "VBA error description: " & HostErrorDescription & vbLf
+    If DockerWasExecuted Then
+        HostLogText = HostLogText & "Docker command execution had already started."
+    Else
+        HostLogText = HostLogText & "Docker command was not executed."
+    End If
+
     On Error Resume Next
-    WriteToFile TempPath, Request.FilePrefix, ".log", _
-        "IguanaTex could not prepare or execute the Docker render job." & vbLf & _
-        "VBA error " & CStr(Err.Number) & ": " & Err.Description
+    WriteToFile TempPath, Request.FilePrefix, ".log", HostLogText
     On Error GoTo 0
+End Function
+
+Public Function GetDockerImageReference() As String
+    Dim ImageReference As String
+    ImageReference = Trim$(CStr(GetITSetting("DockerImage", DEFAULT_DOCKER_IMAGE)))
+    If ImageReference = vbNullString Then ImageReference = DEFAULT_DOCKER_IMAGE
+    GetDockerImageReference = ImageReference
 End Function
 
 Public Function DockerRenderErrorMessage(ByVal FailureStage As String, _
@@ -131,10 +189,11 @@ Public Function DockerRenderErrorMessage(ByVal FailureStage As String, _
         Case "artifact"
             DockerRenderErrorMessage = "The Docker render job completed without returning a final artifact."
         Case "host-payload"
-            DockerRenderErrorMessage = "IguanaTex could not prepare the Docker render payload."
+            DockerRenderErrorMessage = "IguanaTex could not prepare the Docker render payload. " & _
+                "The Docker command was not executed; the temporary log contains the host operation, path, and VBA error."
         Case Else
             DockerRenderErrorMessage = "The Docker render job failed before producing an artifact. " & _
-                "Make sure Docker is running and image " & DEFAULT_DOCKER_IMAGE & " is available locally."
+                "Make sure Docker is running and image " & GetDockerImageReference() & " is available locally."
     End Select
 End Function
 
@@ -322,16 +381,16 @@ Private Function DockerShellQuote(ByVal value As String) As String
     DockerShellQuote = "'" & Replace(value, "'", "'" & Chr$(34) & "'" & Chr$(34) & "'") & "'"
 End Function
 
-Private Function BuildDockerCommand() As String
+Private Function BuildDockerCommand(ByVal DockerImage As String) As String
     Dim BootstrapCommand As String
     BootstrapCommand = "mkdir -p /tmp/iguanatex && cd /tmp/iguanatex && tar -xf - && exec sh job.sh"
     #If Mac Then
         BuildDockerCommand = ShellEscape(DEFAULT_DOCKER_COMMAND) & _
-            " run --rm -i --network none --pull never " & ShellEscape(DEFAULT_DOCKER_IMAGE) & _
+            " run --rm -i --network none --pull never " & ShellEscape(DockerImage) & _
             " sh -c " & ShellEscape(BootstrapCommand)
     #Else
         BuildDockerCommand = ShellEscape(DEFAULT_DOCKER_COMMAND) & _
-            " run --rm -i --network none --pull never " & ShellEscape(DEFAULT_DOCKER_IMAGE) & _
+            " run --rm -i --network none --pull never " & ShellEscape(DockerImage) & _
             " sh -c """ & BootstrapCommand & """"
     #End If
 End Function
@@ -367,29 +426,151 @@ Private Function ReadDockerFailureStage(ByVal LogPath As String) As String
         MarkerEnd - MarkerPosition), vbCr, vbNullString))
 End Function
 
+Private Function CreateDockerWorkspace(ByVal TempPath As String) As String
+    Dim WorkspaceStem As String
+    Dim WorkspacePath As String
+    Dim Attempt As Long
+    WorkspaceStem = "IguanaTex-render-" & Format$(Now, "yyyymmdd-hhnnss") & _
+        "-" & Right$("00000000" & Hex$(CLng(Timer * 1000)), 8)
+
+    For Attempt = 0 To 999
+        WorkspacePath = TempPath & WorkspaceStem & "-" & CStr(Attempt)
+        If Not DockerFolderExists(WorkspacePath) And Not FileExists(WorkspacePath) Then
+            MkDir WorkspacePath
+            CreateDockerWorkspace = WorkspacePath & PathSep
+            Exit Function
+        End If
+    Next
+
+    Err.Raise vbObjectError + 2105, "DockerRender", _
+        "Could not allocate a unique private Docker render workspace under " & TempPath
+End Function
+
+Private Function DockerFolderExists(ByVal FolderPath As String) As Boolean
+    On Error GoTo FolderMissing
+    DockerFolderExists = ((GetAttr(FolderPath) And vbDirectory) <> 0)
+    Exit Function
+FolderMissing:
+    DockerFolderExists = False
+End Function
+
+Private Sub StageDockerAuxiliaryFiles(ByVal SourcePath As String, _
+                                      ByVal WorkspacePath As String, _
+                                      ByVal FilePrefix As String, _
+                                      ByRef HostOperation As String, _
+                                      ByRef HostPath As String)
+    HostOperation = "enumerate configured auxiliary source"
+    HostPath = SourcePath
+
+    ' A shared OS temp root is never an auxiliary source. Users who need custom
+    ' root-level inputs can keep using the existing Temp folder setting with a
+    ' dedicated directory.
+    If IsSystemTemporaryRoot(SourcePath) Then
+        HostOperation = "skip shared system temporary root auxiliary staging"
+        Exit Sub
+    End If
+
+    Dim Candidate As String
+    Dim FullPath As String
+    Dim Attributes As Long
+    Candidate = Dir(SourcePath & "*", vbNormal Or vbReadOnly Or vbHidden Or _
+        vbSystem Or vbArchive)
+    Do While Candidate <> vbNullString
+        FullPath = SourcePath & Candidate
+        Attributes = GetAttr(FullPath)
+        If (Attributes And vbDirectory) = 0 Then
+            If IsDockerAuxiliaryInput(Candidate, FilePrefix) Then
+                HostOperation = "copy auxiliary input into private render workspace"
+                HostPath = FullPath
+                FileCopy FullPath, WorkspacePath & Candidate
+            End If
+        End If
+        Candidate = Dir()
+    Loop
+End Sub
+
+Private Function IsSystemTemporaryRoot(ByVal SourcePath As String) As Boolean
+    Dim NormalizedSource As String
+    NormalizedSource = NormalizeDockerHostPath(SourcePath)
+
+    #If Mac Then
+        IsSystemTemporaryRoot = _
+            (NormalizedSource = NormalizeDockerHostPath(MacTempPath()))
+    #Else
+        Dim SystemTempPath As String
+        SystemTempPath = Environ$("TEMP")
+        If SystemTempPath <> vbNullString Then
+            If NormalizedSource = NormalizeDockerHostPath(SystemTempPath) Then
+                IsSystemTemporaryRoot = True
+                Exit Function
+            End If
+        End If
+
+        SystemTempPath = Environ$("TMP")
+        If SystemTempPath <> vbNullString Then
+            IsSystemTemporaryRoot = _
+                (NormalizedSource = NormalizeDockerHostPath(SystemTempPath))
+        End If
+    #End If
+End Function
+
+Private Function NormalizeDockerHostPath(ByVal HostPath As String) As String
+    HostPath = Trim$(Replace(HostPath, WrongPathSep, PathSep))
+    If HostPath = vbNullString Then Exit Function
+    If Right$(HostPath, 1) <> PathSep Then HostPath = HostPath & PathSep
+    #If Mac Then
+        NormalizeDockerHostPath = HostPath
+    #Else
+        NormalizeDockerHostPath = LCase$(HostPath)
+    #End If
+End Function
+
+Private Function IsDockerAuxiliaryInput(ByVal FileName As String, _
+                                        ByVal FilePrefix As String) As Boolean
+    If LCase$(Left$(FileName, Len(FilePrefix))) = LCase$(FilePrefix) Then Exit Function
+    If LCase$(FileName) = LCase$(DOCKER_JOB_FILENAME) Then Exit Function
+
+    Dim Extension As String
+    Extension = LCase$(GetExtension(FileName))
+    Select Case Extension
+        Case "tex", "ltx", "sty", "cls", "clo", "cfg", "cnf", "def", "fd", _
+             "aux", "bbl", "bib", "bst", "bbx", "cbx", "lbx", "idx", "ind", _
+             "ist", "xdy", "gls", "glo", "acr", "acn", "tikz", "pgf", _
+             "map", "enc", "tfm", "vf", "afm", "pfm", "pfb", "otf", "ttf", "ttc", _
+             "png", "jpg", "jpeg", "jbig2", "jp2", "pdf", "eps", "epsi", "ps", _
+             "svg", "mps", "tif", "tiff", "bmp", "gif", "pdf_tex", "eps_tex", _
+             "csv", "tsv", "dat", "txt", "json", "xml", "yaml", "yml", _
+             "lua", "py", "pl", "r", "m", "sh", "latexmkrc"
+            IsDockerAuxiliaryInput = True
+    End Select
+End Function
+
 Private Sub WriteDockerPayload(ByVal PayloadPath As String, _
-                               ByVal JobPath As String, _
-                               ByVal InputPath As String, _
-                               ByVal TempPath As String, _
-                               ByVal FilePrefix As String)
+                               ByVal WorkspacePath As String, _
+                               ByRef HostOperation As String, _
+                               ByRef HostPath As String)
     On Error GoTo PayloadError
 
-    Dim AuxiliaryNames As New Collection
-    CollectDockerAuxiliaryFiles TempPath, FilePrefix, AuxiliaryNames
+    Dim WorkspaceNames As New Collection
+    CollectDockerWorkspaceFiles WorkspacePath, WorkspaceNames, HostOperation, HostPath
 
     Dim TarFile As Integer
     Dim TarIsOpen As Boolean
+    HostOperation = "create Docker payload tar"
+    HostPath = PayloadPath
     TarFile = FreeFile()
     Open PayloadPath For Binary Access Write As #TarFile
     TarIsOpen = True
-    WriteTarFileEntry TarFile, DOCKER_JOB_FILENAME, JobPath
-    WriteTarFileEntry TarFile, FilePrefix & ".tex", InputPath
 
-    Dim AuxiliaryName As Variant
-    For Each AuxiliaryName In AuxiliaryNames
-        WriteTarFileEntry TarFile, CStr(AuxiliaryName), TempPath & CStr(AuxiliaryName)
+    Dim WorkspaceName As Variant
+    For Each WorkspaceName In WorkspaceNames
+        HostOperation = "write private workspace file to Docker payload"
+        HostPath = WorkspacePath & CStr(WorkspaceName)
+        WriteTarFileEntry TarFile, CStr(WorkspaceName), HostPath
     Next
 
+    HostOperation = "finalize Docker payload tar"
+    HostPath = PayloadPath
     Dim EndBlocks(0 To TAR_BLOCK_SIZE * 2 - 1) As Byte
     Put #TarFile, , EndBlocks
     Close #TarFile
@@ -403,29 +584,61 @@ PayloadError:
     PayloadErrorNumber = Err.Number
     PayloadErrorSource = Err.Source
     PayloadErrorDescription = Err.Description
+    On Error Resume Next
     If TarIsOpen Then Close #TarFile
+    On Error GoTo 0
+    If PayloadErrorNumber = 0 Then
+        PayloadErrorNumber = vbObjectError + 2106
+        PayloadErrorSource = "DockerRender"
+        PayloadErrorDescription = "Unknown error while writing the Docker payload tar."
+    End If
     Err.Raise PayloadErrorNumber, PayloadErrorSource, PayloadErrorDescription
 End Sub
 
-Private Sub CollectDockerAuxiliaryFiles(ByVal TempPath As String, _
-                                        ByVal FilePrefix As String, _
-                                        ByRef AuxiliaryNames As Collection)
+Private Sub CollectDockerWorkspaceFiles(ByVal WorkspacePath As String, _
+                                        ByRef WorkspaceNames As Collection, _
+                                        ByRef HostOperation As String, _
+                                        ByRef HostPath As String)
+    HostOperation = "enumerate private render workspace"
+    HostPath = WorkspacePath
+
     Dim Candidate As String
     Dim FullPath As String
     Dim Attributes As Long
-    Candidate = Dir(TempPath & "*", vbNormal Or vbReadOnly Or vbHidden Or _
+    Candidate = Dir(WorkspacePath & "*", vbNormal Or vbReadOnly Or vbHidden Or _
         vbSystem Or vbArchive)
     Do While Candidate <> vbNullString
-        FullPath = TempPath & Candidate
+        FullPath = WorkspacePath & Candidate
         Attributes = GetAttr(FullPath)
         If (Attributes And vbDirectory) = 0 Then
-            If Left$(Candidate, Len(FilePrefix)) <> FilePrefix And _
-               LCase$(Candidate) <> LCase$(DOCKER_JOB_FILENAME) Then
-                AuxiliaryNames.Add Candidate
-            End If
+            WorkspaceNames.Add Candidate
         End If
         Candidate = Dir()
     Loop
+End Sub
+
+Private Sub PublishDockerLog(ByVal WorkspaceLogPath As String, _
+                             ByVal RootLogPath As String)
+    On Error Resume Next
+    If FileExists(WorkspaceLogPath) Then
+        DeleteDockerFile RootLogPath
+        FileCopy WorkspaceLogPath, RootLogPath
+    End If
+    On Error GoTo 0
+End Sub
+
+Private Sub DeleteDockerWorkspace(ByVal WorkspacePath As String)
+    On Error Resume Next
+    #If Mac Then
+        Dim MacFs As New MacFileSystemObject
+        If MacFs.FolderExists(WorkspacePath) Then MacFs.FindDelete WorkspacePath, "*"
+        Set MacFs = Nothing
+    #Else
+        Dim fs As New FileSystemObject
+        If fs.FolderExists(WorkspacePath) Then fs.DeleteFolder WorkspacePath, True
+        Set fs = Nothing
+    #End If
+    On Error GoTo 0
 End Sub
 
 Private Sub WriteTarFileEntry(ByVal TarFile As Integer, _

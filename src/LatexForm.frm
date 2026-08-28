@@ -297,11 +297,15 @@ Sub ButtonRun_Click()
         End With
 
         Dim DockerFailureStage As String
+        Dim PreserveDockerWorkspace As Boolean
+        PreserveDockerWorkspace = debugMode Or UseExternalEditor Or _
+            CBool(GetITSetting("KeepTempFiles", True))
         RetVal& = ExecuteDockerRenderJob(DockerRequest, TempPath, debugMode, TimeOutTime, _
-            FinalFilename, OutputType, RunCommand, DockerFailureStage)
+            PreserveDockerWorkspace, FinalFilename, OutputType, RunCommand, DockerFailureStage)
         If (RetVal& <> 0 Or Not fs.FileExists(TempPath & FinalFilename)) Then
             ErrorMessage = DockerRenderErrorMessage(DockerFailureStage, TimeOutTimeString)
-            If DockerFailureStage = "latex" And fs.FileExists(TempPath & FilePrefix & ".log") Then
+            If (DockerFailureStage = "latex" Or DockerFailureStage = "host-payload") And _
+               fs.FileExists(TempPath & FilePrefix & ".log") Then
                 ShowLogFile (TempPath & FilePrefix & ".log")
             Else
                 ShowError ErrorMessage, RunCommand

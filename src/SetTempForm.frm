@@ -77,8 +77,7 @@ Private Sub ButtonTeX2img_Click()
 End Sub
 
 Private Sub ButtonTeXExePath_Click()
-    TextBoxTeXExePath.Text = BrowseFolderPath(TextBoxTeXExePath.Text)
-    TextBoxTeXExePath.SetFocus
+    ' The associated field now contains a Docker image reference, not a path.
 End Sub
 
 Private Sub ButtonLaTeXiTPath_Click()
@@ -160,15 +159,10 @@ Private Sub SaveSettings()
     res = RemoveQuotes(TextBoxTeX2img.Text)
     SetITSetting "TeX2img Command", REG_SZ, CStr(res)
     
-    ' Prefix to TeX Executables; if a folder, the user needs to add trailing "/" or "\"
-    res = RemoveQuotes(TextBoxTeXExePath.Text)
-    res = FixTrailingSlash(res)  ' we kindly fix this if the user picked the wrong one
-    If res = vbNullString Then
-        ' On Mac, empty TeXExePath leads to issues, so we reset to default.
-        ' On Windows, default is empty, so this has no effect.
-        res = DEFAULT_TEX_EXE_PATH
-    End If
-    SetITSetting "TeXExePath", REG_SZ, CStr(res)
+    ' Docker image used by the normal SVG/PNG rendering path.
+    res = Trim$(RemoveQuotes(TextBoxTeXExePath.Text))
+    If res = vbNullString Then res = DEFAULT_DOCKER_IMAGE
+    SetITSetting "DockerImage", REG_SZ, CStr(res)
     
     
     ' Path to TeX Extra Path
@@ -306,7 +300,7 @@ Sub ButtonReset_Click()
     
     TextBoxExternalEditor.Text = DEFAULT_EDITOR
     
-    TextBoxTeXExePath.Text = DEFAULT_TEX_EXE_PATH
+    TextBoxTeXExePath.Text = DEFAULT_DOCKER_IMAGE
     TextBoxTeXExtraPath.Text = DEFAULT_TEX_EXTRA_PATH
     
     TextBoxLaTeXiT.Text = Replace(DEFAULT_LATEXIT_METADATA_COMMAND, "%USERPROFILE%", UserProfile)
@@ -406,8 +400,11 @@ Private Sub SetUserFormLayout()
     Me.ButtonEditorPath.Top = Me.ButtonIMPath.Top + 30
     
     Me.LabelTeXExePath.Top = Me.LabelEditor.Top + 30
+    Me.LabelTeXExePath.Caption = "Docker image"
     Me.TextBoxTeXExePath.Top = Me.TextBoxExternalEditor.Top + 30
     Me.ButtonTeXExePath.Top = Me.ButtonEditorPath.Top + 30
+    Me.ButtonTeXExePath.Enabled = False
+    Me.ButtonTeXExePath.Visible = False
     
     Me.LabelLaTeXiT.Top = Me.LabelTeXExePath.Top + 30
     Me.TextBoxLaTeXiT.Top = Me.TextBoxTeXExePath.Top + 30
@@ -521,7 +518,7 @@ Private Sub ReadSavedSettings()
     TextBoxTeX2img.Text = Replace(GetITSetting("TeX2img Command", DEFAULT_TEX2IMG_COMMAND), "%USERPROFILE%", UserProfile)
     'TextBoxTeX2img.Text = GetITSetting("TeX2img Command", DEFAULT_TEX2IMG_COMMAND)
     
-    TextBoxTeXExePath.Text = GetITSetting("TeXExePath", DEFAULT_TEX_EXE_PATH)
+    TextBoxTeXExePath.Text = GetITSetting("DockerImage", DEFAULT_DOCKER_IMAGE)
     
     TextBoxLaTeXiT.Text = Replace(GetITSetting("LaTeXiT", DEFAULT_LATEXIT_METADATA_COMMAND), "%USERPROFILE%", UserProfile)
     'TextBoxLaTeXiT.Text = GetITSetting("LaTeXiT", DEFAULT_LATEXIT_METADATA_COMMAND)
@@ -580,7 +577,7 @@ Private Sub ReadSettingsFromFileIntoRegistry(FilePath As String)
                         "Abs Temp Dir", "Rel Temp Dir", "Temp Dir", _
                         "VectorOutputType", "PictureOutputType", _
                         "GS Command", "IMconv", "Editor", "TeX2img Command", _
-                        "TeXExePath", "TeXExtraPath", _
+                        "DockerImage", "TeXExePath", "TeXExtraPath", _
                         "LaTeXiT", "Libgs", _
                         "VectorScalingX", "VectorScalingY", _
                         "BitmapScalingX", "BitmapScalingY", _
@@ -718,6 +715,7 @@ Public Sub WriteSettingsToFile(FullFilePath As String)
         xmlContent = xmlContent & MakeXMLString("BitmapScalingX", "1")
         xmlContent = xmlContent & MakeXMLString("BitmapScalingY", "1")
         xmlContent = xmlContent & MakeXMLString("Editor", DEFAULT_EDITOR)
+        xmlContent = xmlContent & MakeXMLString("DockerImage", DEFAULT_DOCKER_IMAGE)
         xmlContent = xmlContent & MakeXMLString("TeXExePath", DEFAULT_TEX_EXE_PATH)
         xmlContent = xmlContent & MakeXMLString("Libgs", DEFAULT_LIBGS)
         xmlContent = xmlContent & MakeXMLString("TeXExtraPath", DEFAULT_TEX_EXTRA_PATH)
