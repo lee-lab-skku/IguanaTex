@@ -36,19 +36,24 @@ function Get-ProjectLayout {
         Join-Path $ScriptDirectory ".."
     )).Path
     $sourceDirectory = Join-Path $projectRoot "src"
-    $pptmFiles = @(
-        Get-ChildItem -LiteralPath $projectRoot -Filter "*.pptm" -File |
-        Where-Object { -not $_.Name.StartsWith('~$') } |
-        Sort-Object Name
-    )
+    $pptmDirectory = Join-Path $projectRoot ".build\office"
+    $pptmFiles = @()
+
+    if (Test-Path -LiteralPath $pptmDirectory -PathType Container) {
+        $pptmFiles = @(
+            Get-ChildItem -LiteralPath $pptmDirectory -Filter "*.pptm" -File |
+            Where-Object { -not $_.Name.StartsWith('~$') } |
+            Sort-Object Name
+        )
+    }
 
     if ($pptmFiles.Count -eq 0) {
-        throw "No PPTM container found in project root: $projectRoot"
+        throw "No PPTM container found in build directory: $pptmDirectory"
     }
 
     if ($pptmFiles.Count -gt 1) {
         $names = ($pptmFiles.Name -join ", ")
-        throw "Expected one PPTM container in project root, found: $names"
+        throw "Expected one PPTM container in build directory, found: $names"
     }
 
     return [PSCustomObject]@{
