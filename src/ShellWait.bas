@@ -2,6 +2,19 @@ Attribute VB_Name = "ShellWait"
 Option Explicit
 
 #If Mac Then
+Public Function ExecuteRedirected(ByVal CommandLine As String, _
+                                  ByVal StartupDir As String, _
+                                  ByVal StdInputPath As String, _
+                                  ByVal StdOutputPath As String, _
+                                  ByVal StdErrorPath As String, _
+                                  Optional ByVal debugMode As Boolean = False, _
+                                  Optional ByVal WaitTime As Long = -1) As Long
+    Dim RedirectedCommand As String
+    RedirectedCommand = CommandLine & " < " & ShellEscape(StdInputPath) & _
+        " > " & ShellEscape(StdOutputPath) & " 2> " & ShellEscape(StdErrorPath)
+    ExecuteRedirected = Execute(RedirectedCommand, StartupDir, debugMode, WaitTime)
+End Function
+
 Public Function Execute(ByVal CommandLine As String, StartupDir As String, Optional debugMode As Boolean = False, Optional WaitTime As Long = -1) As Long
     Dim TeXExePath As String
     TeXExePath = GetFolderFromPath(GetITSetting("TeXExePath", DEFAULT_TEX_EXE_PATH))
@@ -28,8 +41,17 @@ End Function
 ' Courtesy of Terry Kreft
 
 Private Const STARTF_USESHOWWINDOW As Long = &H1
+Private Const STARTF_USESTDHANDLES As Long = &H100
 Private Const NORMAL_PRIORITY_CLASS = &H20&
 Private Const INFINITE = -1&
+Private Const WAIT_TIMEOUT As Long = 258
+Private Const GENERIC_READ As Long = &H80000000
+Private Const GENERIC_WRITE As Long = &H40000000
+Private Const FILE_SHARE_READ As Long = &H1
+Private Const OPEN_EXISTING As Long = 3
+Private Const CREATE_ALWAYS As Long = 2
+Private Const FILE_ATTRIBUTE_NORMAL As Long = &H80
+Private Const INVALID_HANDLE_VALUE As Long = -1
 
 Private Type STARTUPINFO
     cb As Long
@@ -60,6 +82,40 @@ Private Type PROCESS_INFORMATION
 End Type
 
 #If VBA7 Then
+Private Type SECURITY_ATTRIBUTES_REDIRECT
+    nLength As Long
+    lpSecurityDescriptor As LongPtr
+    bInheritHandle As Long
+End Type
+
+Private Type STARTUPINFO_REDIRECT
+    cb As Long
+    lpReserved As LongPtr
+    lpDesktop As LongPtr
+    lpTitle As LongPtr
+    dwX As Long
+    dwY As Long
+    dwXSize As Long
+    dwYSize As Long
+    dwXCountChars As Long
+    dwYCountChars As Long
+    dwFillAttribute As Long
+    dwFlags As Long
+    wShowWindow As Integer
+    cbReserved2 As Integer
+    lpReserved2 As LongPtr
+    hStdInput As LongPtr
+    hStdOutput As LongPtr
+    hStdError As LongPtr
+End Type
+
+Private Type PROCESS_INFORMATION_REDIRECT
+    hProcess As LongPtr
+    hThread As LongPtr
+    dwProcessID As Long
+    dwThreadId As Long
+End Type
+
 Private Declare PtrSafe Function WaitForSingleObject Lib "kernel32" (ByVal _
     hHandle As Long, ByVal dwMilliseconds As Long) As Long
     
@@ -89,7 +145,67 @@ Public Declare PtrSafe Function ShellExecute Lib "shell32.dll" _
   Optional ByVal WindowStyle As Long = vbMinimizedFocus _
   ) As Long
 
+Private Declare PtrSafe Function CreateFileRedirect Lib "kernel32" Alias "CreateFileA" ( _
+    ByVal lpFileName As String, ByVal dwDesiredAccess As Long, _
+    ByVal dwShareMode As Long, lpSecurityAttributes As SECURITY_ATTRIBUTES_REDIRECT, _
+    ByVal dwCreationDisposition As Long, ByVal dwFlagsAndAttributes As Long, _
+    ByVal hTemplateFile As LongPtr) As LongPtr
+
+Private Declare PtrSafe Function CreateProcessRedirect Lib "kernel32" Alias "CreateProcessA" ( _
+    ByVal lpApplicationName As LongPtr, ByVal lpCommandLine As String, _
+    ByVal lpProcessAttributes As LongPtr, ByVal lpThreadAttributes As LongPtr, _
+    ByVal bInheritHandles As Long, ByVal dwCreationFlags As Long, _
+    ByVal lpEnvironment As LongPtr, ByVal lpCurrentDirectory As String, _
+    lpStartupInfo As STARTUPINFO_REDIRECT, _
+    lpProcessInformation As PROCESS_INFORMATION_REDIRECT) As Long
+
+Private Declare PtrSafe Function WaitForRedirectProcess Lib "kernel32" Alias "WaitForSingleObject" ( _
+    ByVal hHandle As LongPtr, ByVal dwMilliseconds As Long) As Long
+
+Private Declare PtrSafe Function GetRedirectExitCode Lib "kernel32" Alias "GetExitCodeProcess" ( _
+    ByVal hProcess As LongPtr, lpExitCode As Long) As Long
+
+Private Declare PtrSafe Function TerminateRedirectProcess Lib "kernel32" Alias "TerminateProcess" ( _
+    ByVal hProcess As LongPtr, ByVal uExitCode As Long) As Long
+
+Private Declare PtrSafe Function CloseRedirectHandle Lib "kernel32" Alias "CloseHandle" ( _
+    ByVal hObject As LongPtr) As Long
+
 #Else
+Private Type SECURITY_ATTRIBUTES_REDIRECT
+    nLength As Long
+    lpSecurityDescriptor As Long
+    bInheritHandle As Long
+End Type
+
+Private Type STARTUPINFO_REDIRECT
+    cb As Long
+    lpReserved As Long
+    lpDesktop As Long
+    lpTitle As Long
+    dwX As Long
+    dwY As Long
+    dwXSize As Long
+    dwYSize As Long
+    dwXCountChars As Long
+    dwYCountChars As Long
+    dwFillAttribute As Long
+    dwFlags As Long
+    wShowWindow As Integer
+    cbReserved2 As Integer
+    lpReserved2 As Long
+    hStdInput As Long
+    hStdOutput As Long
+    hStdError As Long
+End Type
+
+Private Type PROCESS_INFORMATION_REDIRECT
+    hProcess As Long
+    hThread As Long
+    dwProcessID As Long
+    dwThreadId As Long
+End Type
+
 Private Declare Function WaitForSingleObject Lib "kernel32" (ByVal _
     hHandle As Long, ByVal dwMilliseconds As Long) As Long
     
@@ -118,7 +234,116 @@ Public Declare Function ShellExecute Lib "shell32.dll" _
   Optional ByVal Directory As String, _
   Optional ByVal WindowStyle As Long = vbMinimizedFocus _
   ) As Long
+
+Private Declare Function CreateFileRedirect Lib "kernel32" Alias "CreateFileA" ( _
+    ByVal lpFileName As String, ByVal dwDesiredAccess As Long, _
+    ByVal dwShareMode As Long, lpSecurityAttributes As SECURITY_ATTRIBUTES_REDIRECT, _
+    ByVal dwCreationDisposition As Long, ByVal dwFlagsAndAttributes As Long, _
+    ByVal hTemplateFile As Long) As Long
+
+Private Declare Function CreateProcessRedirect Lib "kernel32" Alias "CreateProcessA" ( _
+    ByVal lpApplicationName As Long, ByVal lpCommandLine As String, _
+    ByVal lpProcessAttributes As Long, ByVal lpThreadAttributes As Long, _
+    ByVal bInheritHandles As Long, ByVal dwCreationFlags As Long, _
+    ByVal lpEnvironment As Long, ByVal lpCurrentDirectory As String, _
+    lpStartupInfo As STARTUPINFO_REDIRECT, _
+    lpProcessInformation As PROCESS_INFORMATION_REDIRECT) As Long
+
+Private Declare Function WaitForRedirectProcess Lib "kernel32" Alias "WaitForSingleObject" ( _
+    ByVal hHandle As Long, ByVal dwMilliseconds As Long) As Long
+
+Private Declare Function GetRedirectExitCode Lib "kernel32" Alias "GetExitCodeProcess" ( _
+    ByVal hProcess As Long, lpExitCode As Long) As Long
+
+Private Declare Function TerminateRedirectProcess Lib "kernel32" Alias "TerminateProcess" ( _
+    ByVal hProcess As Long, ByVal uExitCode As Long) As Long
+
+Private Declare Function CloseRedirectHandle Lib "kernel32" Alias "CloseHandle" ( _
+    ByVal hObject As Long) As Long
 #End If
+
+Public Function ExecuteRedirected(ByVal CommandLine As String, _
+                                  ByVal StartupDir As String, _
+                                  ByVal StdInputPath As String, _
+                                  ByVal StdOutputPath As String, _
+                                  ByVal StdErrorPath As String, _
+                                  Optional ByVal debugMode As Boolean = False, _
+                                  Optional ByVal WaitTime As Long = -1) As Long
+    Dim SecurityAttributes As SECURITY_ATTRIBUTES_REDIRECT
+    Dim StartInfo As STARTUPINFO_REDIRECT
+    Dim ProcessInfo As PROCESS_INFORMATION_REDIRECT
+    #If VBA7 Then
+    Dim InputHandle As LongPtr
+    Dim OutputHandle As LongPtr
+    Dim ErrorHandle As LongPtr
+    #Else
+    Dim InputHandle As Long
+    Dim OutputHandle As Long
+    Dim ErrorHandle As Long
+    #End If
+    Dim Created As Long
+    Dim WaitResult As Long
+    Dim ExitCode As Long
+
+    SecurityAttributes.nLength = LenB(SecurityAttributes)
+    SecurityAttributes.bInheritHandle = 1
+
+    InputHandle = CreateFileRedirect(StdInputPath, GENERIC_READ, FILE_SHARE_READ, _
+        SecurityAttributes, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0)
+    If InputHandle = INVALID_HANDLE_VALUE Then GoTo RedirectError
+
+    OutputHandle = CreateFileRedirect(StdOutputPath, GENERIC_WRITE, FILE_SHARE_READ, _
+        SecurityAttributes, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0)
+    If OutputHandle = INVALID_HANDLE_VALUE Then GoTo RedirectError
+
+    ErrorHandle = CreateFileRedirect(StdErrorPath, GENERIC_WRITE, FILE_SHARE_READ, _
+        SecurityAttributes, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0)
+    If ErrorHandle = INVALID_HANDLE_VALUE Then GoTo RedirectError
+
+    With StartInfo
+        .cb = LenB(StartInfo)
+        .dwFlags = STARTF_USESHOWWINDOW Or STARTF_USESTDHANDLES
+        .wShowWindow = 0
+        .hStdInput = InputHandle
+        .hStdOutput = OutputHandle
+        .hStdError = ErrorHandle
+    End With
+
+    If debugMode Then
+        ShowError vbNullString, CommandLine, "Debug mode", "Next command:", "Continue"
+    End If
+
+    Created = CreateProcessRedirect(0, CommandLine, 0, 0, 1, _
+        NORMAL_PRIORITY_CLASS, 0, StartupDir, StartInfo, ProcessInfo)
+    If Created = 0 Then GoTo RedirectError
+
+    If WaitTime > 0 Then
+        WaitResult = WaitForRedirectProcess(ProcessInfo.hProcess, WaitTime)
+    Else
+        WaitResult = WaitForRedirectProcess(ProcessInfo.hProcess, INFINITE)
+    End If
+
+    If WaitResult = WAIT_TIMEOUT Then
+        Call TerminateRedirectProcess(ProcessInfo.hProcess, WAIT_TIMEOUT)
+        Call WaitForRedirectProcess(ProcessInfo.hProcess, 5000)
+        ExitCode = WAIT_TIMEOUT
+    ElseIf GetRedirectExitCode(ProcessInfo.hProcess, ExitCode) = 0 Then
+        ExitCode = 1
+    End If
+
+    ExecuteRedirected = ExitCode
+    GoTo RedirectCleanup
+
+RedirectError:
+    ExecuteRedirected = 1
+
+RedirectCleanup:
+    If ProcessInfo.hThread <> 0 Then Call CloseRedirectHandle(ProcessInfo.hThread)
+    If ProcessInfo.hProcess <> 0 Then Call CloseRedirectHandle(ProcessInfo.hProcess)
+    If ErrorHandle <> 0 And ErrorHandle <> INVALID_HANDLE_VALUE Then Call CloseRedirectHandle(ErrorHandle)
+    If OutputHandle <> 0 And OutputHandle <> INVALID_HANDLE_VALUE Then Call CloseRedirectHandle(OutputHandle)
+    If InputHandle <> 0 And InputHandle <> INVALID_HANDLE_VALUE Then Call CloseRedirectHandle(InputHandle)
+End Function
 
     
 Public Function ShellWait(pathname As String, Optional StartupDir As String, Optional WindowStyle As Long, Optional WaitTime As Long = -1) As Long

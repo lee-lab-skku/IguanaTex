@@ -274,7 +274,42 @@ Sub ButtonRun_Click()
         #End If
     End If
     
-    If UseVector = True And VectorOutputType = "tex2img" Then
+    If IsDockerRenderPath(UseVector, VectorOutputType, PictureOutputType) Then
+        LabelProcess.Caption = "Render in Docker..."
+        FrameProcess.Repaint
+
+        Dim DockerRequest As DockerRenderRequest
+        With DockerRequest
+            .FilePrefix = FilePrefix
+            .LatexCommand = latex_command
+            .LatexDviOptions = latex_dvi_options
+            .LatexmkPdfOptions = latexmk_pdf_options
+            .LatexmkDviOptions = latexmk_dvi_options
+            .ShellEscapeBatchOptions = shellescape_batchmode_options
+            .UseLatexmk = UseLatexmk
+            .UseDvi = UseDVI
+            .UsePdf = UsePDF
+            .UseVector = UseVector
+            .VectorOutputType = VectorOutputType
+            .PictureOutputType = PictureOutputType
+            .OutputDpi = OutputDpi
+            .TimeoutSeconds = CLng(val(NormalizeDecimalNumber(TimeOutTimeString)))
+        End With
+
+        Dim DockerFailureStage As String
+        RetVal& = ExecuteDockerRenderJob(DockerRequest, TempPath, debugMode, TimeOutTime, _
+            FinalFilename, OutputType, RunCommand, DockerFailureStage)
+        If (RetVal& <> 0 Or Not fs.FileExists(TempPath & FinalFilename)) Then
+            ErrorMessage = DockerRenderErrorMessage(DockerFailureStage, TimeOutTimeString)
+            If DockerFailureStage = "latex" And fs.FileExists(TempPath & FilePrefix & ".log") Then
+                ShowLogFile (TempPath & FilePrefix & ".log")
+            Else
+                ShowError ErrorMessage, RunCommand
+            End If
+            FrameProcess.Visible = False
+            Exit Sub
+        End If
+    ElseIf UseVector = True And VectorOutputType = "tex2img" Then
         ' Use TeX2img to generate an EMF file from LaTeX
         LabelProcess.Caption = "LaTeX to EMF..."
         FrameProcess.Repaint
