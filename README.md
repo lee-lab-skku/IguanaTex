@@ -4,9 +4,9 @@
 
 IguanaTex is a PowerPoint add-in which allows you to insert LaTeX equations into your PowerPoint presentation on Windows and Mac. It is distributed completely for free, along with its source code.
 
-This repository hosts the source code in a form that can be easily tracked, shared, and discussed (the VBA code is exported using the [ExportVBA macro](https://github.com/Jonathan-LeRoux/IguanaTex/blob/master/ExportVBA.bas)).
+This fork stores canonical VBA source under `src/`, Office project and RibbonX metadata under `office/`, and developer automation under `scripts/`. Generated `.pptm` and `.ppam` files are disposable build artifacts and are not source files. See [CONTRIBUTING.md](CONTRIBUTING.md) for the repository model and development workflows.
 
-The add-in file (.ppam) and its source version (.pptm) can be found in the [Releases](https://github.com/Jonathan-LeRoux/IguanaTex/releases).
+Prebuilt add-in (`.ppam`) and source-container (`.pptm`) files from the upstream project can be found in [Upstream Releases](https://github.com/Jonathan-LeRoux/IguanaTex/releases).
 
 ## Table of Contents
 
@@ -14,12 +14,12 @@ The add-in file (.ppam) and its source version (.pptm) can be found in the [Rele
   - [Windows](#windows)
   - [Mac](#mac)
 - [Download and Install](#download-and-install)
-  - [Windows](#windows)
-  - [Mac](#mac)
+  - [Windows Installation](#windows-installation)
+  - [Mac Installation](#mac-installation)
     - [Automatic installation with Homebrew](#automatic-installation-with-homebrew)
     - [Manual installation](#manual-installation)
   - [Other installation settings](#other-installation-settings)
-- [Building Office artifacts on Windows](#building-office-artifacts-on-windows)
+- [Development](#development)
 - [Tips, Bugs, and Known Issues](#tips-bugs-and-known-issues)
   - [What to do if something does not work, or does not work as you expected](#what-to-do-if-something-does-not-work-or-does-not-work-as-you-expected)
   - [Debugging an issue](#debugging-an-issue)
@@ -46,7 +46,7 @@ The add-in file (.ppam) and its source version (.pptm) can be found in the [Rele
 
 - Intel or Apple Silicon Mac
 - PowerPoint for Mac:
-  - Office 365, Office 2021 (including LTSC version), Powerpoint 2019, PowerPoint 2016 (Version 16.16.7 190210 or later)
+  - Office 365, Office 2021 (including LTSC version), PowerPoint 2019, PowerPoint 2016 (Version 16.16.7 190210 or later)
   - SVG support is available for Office 365 and recent retail versions of PowerPoint, including 2019 and 2021. Note that volume licensed (LTSC) versions do not support SVG conversion to Shape, which is required by IguanaTex.
 - [MacTeX](https://www.tug.org/mactex/)
 - Ghostscript library: For SVG/Shape support, download and install [Ghostscript-10.04.0.pkg](https://pages.uoregon.edu/koch/Ghostscript-10.04.0.pkg) and [Ghostscript-10.04.0-Extras.pkg](https://pages.uoregon.edu/koch/Ghostscript-10.04.0-Extras.pkg) (Once MacTeX 2025 is released, this should no longer be necessary). [More details about SVG support via `dvisvgm` in MacTeX](https://tug.org/mactex/aboutdvisvgm.html).
@@ -57,7 +57,7 @@ The add-in file (.ppam) and its source version (.pptm) can be found in the [Rele
 
 ### Windows Installation
 
-1. **Download the .ppam add-in** file from this repository's [Releases page](https://github.com/Jonathan-LeRoux/IguanaTex/releases) and save it in a [Trusted Location](https://learn.microsoft.com/en-us/DeployOffice/security/trusted-locations) (see [this Microsoft article](https://learn.microsoft.com/en-us/DeployOffice/security/internet-macros-blocked#guidance-on-allowing-vba-macros-to-run-in-files-you-trust)), such as `%appdata%\Microsoft\Addins` (i.e., `C:\Users\user_name\Appdata\Roaming\Microsoft\Addins`). If you get a malware warning, try "Trust"-ing the file (Right-Click > Properties). You may have better luck downloading the `.pptm` file, Trusting it, opening it in PowerPoint, and using "Save As" to create your own `.ppam` file.
+1. **Download the .ppam add-in** file from the upstream project's [Releases page](https://github.com/Jonathan-LeRoux/IguanaTex/releases) and save it in a [Trusted Location](https://learn.microsoft.com/en-us/DeployOffice/security/trusted-locations) (see [this Microsoft article](https://learn.microsoft.com/en-us/DeployOffice/security/internet-macros-blocked#guidance-on-allowing-vba-macros-to-run-in-files-you-trust)), such as `%appdata%\Microsoft\Addins` (i.e., `C:\Users\user_name\Appdata\Roaming\Microsoft\Addins`). If you get a malware warning, try "Trust"-ing the file (Right-Click > Properties). You may have better luck downloading the `.pptm` file, Trusting it, opening it in PowerPoint, and using "Save As" to create your own `.ppam` file.
 2. **Load the add-in**: in "File" > "Options" > "Add-Ins" > "Manage:" (lower part of the window), choose "PowerPoint Add-Ins" in the selection box. Then press "Go...", then click  "Add New", select the `.ppam` file in the folder where you downloaded it, then "Close" (if you downloaded the .pptm source and saved it as `.ppam`, it will be in the default Add-In folder).
 3. **Create and set a temporary file folder**: IguanaTex needs access to a folder with read/write permissions to store temporary files.
    - The default is "C:\Temp\". If you have write permissions under "C:\", create the folder "C:\Temp\". You're all set.
@@ -69,11 +69,11 @@ The add-in file (.ppam) and its source version (.pptm) can be found in the [Rele
    - Some default paths include `%USERPROFILE%`. It is recommended to click on "..." to make sure the path gets properly converted to the actual user profile path.
 5. (Optional) **Install and set path to TeX2img**:
    - Only needed for vector graphics support via EMF (compared to SVG, pros of EMF are: available on all PowerPoint versions, fully modifiable shapes; cons: some displays randomly suffer from distortions)
-   - Download from [this link](https://www.ms.u-tokyo.ac.jp/~abenori/soft/index.html#TEX2IMG) (more details on TeX2img on their [Github repo](https://github.com/abenori/TeX2img))
+   - Download from [this link](https://www.ms.u-tokyo.ac.jp/~abenori/soft/index.html#TEX2IMG) (more details on TeX2img on their [GitHub repo](https://github.com/abenori/TeX2img))
    - After unpacking TeX2img somewhere on your machine, run TeX2img.exe once to let it automatically set the various paths to latex/ghostscript, then set the **full** path to `TeX2imgc.exe` (note the "`c`"!) in the "Main Settings" window.
 6. (Optional) **Install LaTeXiT-metadata**:
    - Needed to convert displays generated with [LaTeXiT](https://www.chachatelier.fr/latexit/) on Mac into IguanaTex displays
-   - Download [`LaTeXiT-metadata-Win.zip`](https://github.com/Jonathan-LeRoux/IguanaTex/releases/download/v1.60.3/LaTeXiT-metadata-Win.zip) from the Releases page, unzip, and set the path to `LaTeXiT-metadata.exe` in the "Main Settings" window.
+   - Download [`LaTeXiT-metadata-Win.zip`](https://github.com/Jonathan-LeRoux/IguanaTex/releases/download/v1.60.3/LaTeXiT-metadata-Win.zip) from the upstream Releases page, unzip, and set the path to `LaTeXiT-metadata.exe` in the "Main Settings" window.
    - LaTeXiT-metadata was kindly prepared by Pierre Chatelier, [LaTeXiT](https://www.chachatelier.fr/latexit/)'s author, at my request. Many thanks to him!
    - [Source code is now public](https://github.com/LaTeXiT-metadata/LaTeXiT-metadata-Win).
 
@@ -94,8 +94,9 @@ For more details (e.g., how to **upgrade** or **uninstall**), please see [Tsung-
 
 #### Manual installation
 
-1. **Download the "prebuilt files for Mac" zip** from this repository's [Releases page](https://github.com/Jonathan-LeRoux/IguanaTex/releases)  
-There are 3 files to install:
+1. **Download the "prebuilt files for Mac" zip** from the upstream project's [Releases page](https://github.com/Jonathan-LeRoux/IguanaTex/releases)
+
+   There are 3 files to install:
    - `IguanaTex.scpt`: AppleScript file for handling file and folder access
    - `libIguanaTexHelper.dylib`: library for creating native text views; source code included in the git repo, under "IguanaTexHelper/"
    - `IguanaTex_v1_XX_Y.ppam`: main add-in file
@@ -119,7 +120,7 @@ There are 3 files to install:
 5. **Verify that paths are set correctly**:
    Click on "Main Settings" in the IguanaTex ribbon tab:
    - Set the Temp folder used for file conversions in one of the following ways:
-     - (Recommended) The simplest is to let Iguanatex pick the Temp folder by selecting "Absolute" and leaving the path empty. The Temp folder will be inside the PowerPoint sandbox and everything will work without having to give permissions.
+     - (Recommended) The simplest is to let IguanaTex pick the Temp folder by selecting "Absolute" and leaving the path empty. The Temp folder will be inside the PowerPoint sandbox and everything will work without having to give permissions.
      - (If needed) If you need the Temp folder to be a specific folder outside the sandbox, or if you'd rather it be relative to your PowerPoint presentation (e.g., because you are using specific macros in an external file), you will need to give access permission to that folder to IguanaTex. The best thing to do is to drag and drop that folder from the Finder on top of the PowerPoint application. This will allow you to give permission to the whole folder at least for the current session.
    - Verify that the following paths are set correctly by clicking on each "..." button next to them. If the path is correct, this should take you to its location; otherwise, you'll need to navigate to the relevant path. The defaults should match the MacTeX installation locations, but your installation may differ.
      - GhostScript
@@ -128,11 +129,14 @@ There are 3 files to install:
      
      If you cannot find them or if IguanaTex complains that a command did not return, open a terminal and use `locate gs`, `locate pdflatex`, and `locate libgs`.
 
-7. (Optional) **Install LaTeXiT-metadata**:
+6. (Optional) **Install LaTeXiT-metadata**:
    - Needed to convert displays generated with [LaTeXiT](https://www.chachatelier.fr/latexit/) on Mac into IguanaTex displays
-   - Download [`LaTeXiT-metadata-macos`](https://github.com/Jonathan-LeRoux/IguanaTex/releases/download/v1.60.3/LaTeXiT-metadata-macos) from the Releases page, add executable permission, and either set the path to its location in the "Main Settings" window or copy it to the secure add-in folder:  
-  `chmod 755 ./LaTeXiT-metadata-macos`  
-  `sudo cp ./LaTeXiT-metadata-macos '/Library/Application Support/Microsoft/Office365/User Content.localized/Add-Ins.localized/'`
+   - Download [`LaTeXiT-metadata-macos`](https://github.com/Jonathan-LeRoux/IguanaTex/releases/download/v1.60.3/LaTeXiT-metadata-macos) from the upstream Releases page, add executable permission, and either set the path to its location in the "Main Settings" window or copy it to the secure add-in folder:
+
+     ```bash
+     chmod 755 ./LaTeXiT-metadata-macos
+     sudo cp ./LaTeXiT-metadata-macos '/Library/Application Support/Microsoft/Office365/User Content.localized/Add-Ins.localized/'
+     ```
    - The first time LaTeXiT-metadata-macos is called by IguanaTex, Mac OS may block it. Go to the Mac's Settings, then Security and Privacy, and click "Allow Anyway".
    - The executable was compiled on Mac OS 10.13 but should work on all versions. Please let me know if you have any issue.
    - LaTeXiT-metadata was kindly prepared by Pierre Chatelier, [LaTeXiT](https://www.chachatelier.fr/latexit/)'s author, at my request. Many thanks to him!
@@ -146,71 +150,26 @@ There are 3 files to install:
   - if you are not specifying any path or prefix, then the Tectonic executable needs to be on your PATH.
 - If you would like to have the option of using an external editor, e.g., when debugging LaTeX source code, you can specify the path to that editor in Main Settings. If you would like to use that editor by default over the IguanaTex edit window, check the "use as default" checkbox.
 
-## Building Office artifacts on Windows
+## Development
 
-The repository keeps Office inputs as canonical source rather than using a
-checked-in `.pptm` as a template:
-
-- `src/` contains exported VBA modules, classes, forms, and opaque companion
-  `.frx` files.
-- `office/project/` contains VBProject metadata and explicit references.
-- `office/ribbon/` contains the Office 2007 and Office 2010+ RibbonX XML.
-
-PowerPoint must be installed, and **Trust access to the VBA project object
-model** must be enabled. Run these commands in Windows PowerShell 5.1. The
-fresh build creates a new presentation through PowerPoint COM, imports only
-the canonical inputs above, runs the VBE compile gate in an isolated helper
-process, injects RibbonX after PowerPoint closes the file, and performs package
-and PowerPoint reopen validation.
-
-Close unrelated PowerPoint windows before running the automation. If Office COM
-binds to an existing process, the workflow fails safely rather than opening a
-file in, calling `Quit` on, or terminating that process. All fallback process
-termination is restricted to an exact PID and process start time owned by the
-current build.
+The repository does not use a checked-in `.pptm` as source. VBA, project
+metadata, references, and RibbonX are maintained in `src/` and `office/`.
+Windows developers can create disposable Office artifacts with:
 
 ```powershell
-# Fresh canonical source -> .build\office\IguanaTeX.pptm
 .\scripts\office-build.ps1 build
-
-# Build PPTM and PPAM together
-.\scripts\office-build.ps1 build `
-    -PpamOutputPath .\.build\office\IguanaTeX.ppam
-
-# Non-destructive validation (compile/reopen work happens on a temporary copy)
-.\scripts\office-build.ps1 validate `
-    -InputPath .\.build\office\IguanaTeX.pptm
-
-# Convert an already validated PPTM to PPAM
-.\scripts\office-build.ps1 ppam `
-    -InputPath .\.build\office\IguanaTeX.pptm
+.\scripts\office-build.ps1 validate -InputPath .\.build\office\IguanaTeX.pptm
 ```
 
-Outputs default to the ignored `.build/office/` directory. Use `-OutputPath`
-to choose another disposable target. Existing output is never replaced unless
-`-Force` is supplied. `-CompileTimeoutSeconds` controls the isolated VBE gate;
-`-OfficeTimeoutSeconds` controls individual PowerPoint open, save, add-in, and
-shutdown operations. Both default to 60 seconds.
+PowerPoint and Windows PowerShell 5.1 are required, and **Trust access to the
+VBA project object model** must be enabled. The separate `vba-sync.ps1`
+workflow is only for synchronizing an existing PPTM in `.build/office/` with
+`src/`.
 
-The PPAM path first compiles and validates its source PPTM. PowerPoint does not
-offer a safe way to target VBE Compile at a loaded add-in project, so the final
-PPAM is instead checked by package validation plus two complete
-load/unload/remove cycles. It is not separately VBE-compiled after `SaveAs`.
-
-The existing VBA sync command remains a separate workflow. It expects exactly
-one non-lock `.pptm` in the repository root and synchronizes that container
-with `src/`:
-
-```powershell
-.\scripts\vba-sync.ps1 import -Prune
-.\scripts\vba-sync.ps1 export
-.\scripts\vba-sync.ps1 verify
-```
-
-Automated validation does not click Ribbon controls. For a release smoke test,
-load the generated PPAM through PowerPoint Add-ins, confirm that the IguanaTeX
-tab contains three groups and eight buttons, then exercise the buttons in an
-environment with the normal IguanaTeX runtime dependencies installed.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing canonical sources or
+automation. It documents the fork-specific history, complete repository map,
+sync and fresh-build CLI, Office/VBE safety boundaries, validation matrix,
+UserForm/FRX policy, and instructions for both human and AI contributors.
 
 ## Tips, Bugs, and Known Issues
 
@@ -218,7 +177,7 @@ environment with the normal IguanaTeX runtime dependencies installed.
 
 Most issues originate from some steps of the installation process described above not being followed: please double-check you went through all the steps. A reboot also often helps after a first installation.
 
-If you are having trouble installing or using IguanaTex, please see the [Frequently Asked Questions](https://www.jonathanleroux.org/software/iguanatex/faq.html) and check the [Issues](https://github.com/Jonathan-LeRoux/IguanaTex/issues?q=is%3Aissue) on this repo.
+If you are having trouble installing or using IguanaTex, please see the [Frequently Asked Questions](https://www.jonathanleroux.org/software/iguanatex/faq.html) and check the [upstream issue tracker](https://github.com/Jonathan-LeRoux/IguanaTex/issues?q=is%3Aissue).
 
 ### Debugging an issue
 
@@ -226,7 +185,8 @@ When running into an issue while trying to generate a display, the first thing t
 
 If this does not solve the issue, or the issue does not occur during the generation process, the next step is to try to debug in the VBA Editor. To do so:
 
-- open the source `.pptm` file in PowerPoint.
+- open a source `.pptm` from an upstream release, or build a fresh disposable
+  one by following [CONTRIBUTING.md](CONTRIBUTING.md).
 - open the VBA Editor (`Alt+F11` on Windows, `Tools > Macro > Visual Basic Editor` on Mac).
 - search for "Macros" under "Module" in the exploration pane on the left.
 - place a breakpoint, for example at Line 7 (`Load LatexForm` under `NewLatexEquation()`) by clicking in the margin.
