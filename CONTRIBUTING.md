@@ -100,7 +100,7 @@ not expect `office-build.ps1` to update canonical source from an edited PPTM.
 
 ### VBA components and UserForms
 
-The current source tree contains 23 importable components: 9 standard modules,
+The current source tree contains 24 importable components: 10 standard modules,
 5 classes, and 9 UserForms with 9 matching FRX files. The closure validator
 requires:
 

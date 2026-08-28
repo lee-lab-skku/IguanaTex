@@ -36,9 +36,8 @@ Prebuilt add-in (`.ppam`) and source-container (`.pptm`) files from the upstream
 - PowerPoint:
   - IguanaTex has been tested with Office 365, Office 2019, Office 2021 (including LTSC version), PowerPoint 2003, 2010, 2013, 2016, 2019 (both 32 and 64 bit). It is likely to also work in PowerPoint 2000 and 2007.
   - SVG support is available for Office 365 and recent retail versions of PowerPoint. Support is confirmed for PowerPoint 2021 at least for versions 2108 and above, and likely (although unconfirmed) for PowerPoint 2019 and maybe even PowerPoint 2016 for the same versions. Note that volume licensed versions, which are at version 1808 as of August 2023, do not support SVG conversion to Shape, which is required by IguanaTex.
-- LaTeX: [TeXLive](https://www.tug.org/texlive/) or [MiKTeX](http://miktex.org/)
-- [GhostScript](http://www.ghostscript.com/download/gsdnld.html) (if the latest version raises issues, try gs9.26)
-- [ImageMagick](http://www.imagemagick.org/script/download.php#windows)
+- Docker Desktop (or another local Docker engine with the `docker` CLI). Generate/ReGenerate rendering for the normal SVG and PNG paths runs entirely in a container with networking disabled. The default image is `danteev/texlive:latest` and can be changed in Main Settings.
+- The container image must provide the selected LaTeX engine and the required tools on its internal `PATH` (`latexmk`, `dvisvgm`, `dvipng`, `dvipdfmx`, Ghostscript, and ImageMagick as applicable).
 - (Optional) [TeX2img](https://github.com/abenori/TeX2img), used for Shape output via EMF ([Download](https://www.ms.u-tokyo.ac.jp/~abenori/soft/index.html#TEX2IMG))
 - (Optional) [LaTeXiT-metadata](https://github.com/LaTeXiT-metadata/LaTeXiT-metadata-Win), used to convert displays generated with [LaTeXiT](https://www.chachatelier.fr/latexit/) on Mac into IguanaTex displays
 
@@ -48,8 +47,8 @@ Prebuilt add-in (`.ppam`) and source-container (`.pptm`) files from the upstream
 - PowerPoint for Mac:
   - Office 365, Office 2021 (including LTSC version), PowerPoint 2019, PowerPoint 2016 (Version 16.16.7 190210 or later)
   - SVG support is available for Office 365 and recent retail versions of PowerPoint, including 2019 and 2021. Note that volume licensed (LTSC) versions do not support SVG conversion to Shape, which is required by IguanaTex.
-- [MacTeX](https://www.tug.org/mactex/)
-- Ghostscript library: For SVG/Shape support, download and install [Ghostscript-10.04.0.pkg](https://pages.uoregon.edu/koch/Ghostscript-10.04.0.pkg) and [Ghostscript-10.04.0-Extras.pkg](https://pages.uoregon.edu/koch/Ghostscript-10.04.0-Extras.pkg) (Once MacTeX 2025 is released, this should no longer be necessary). [More details about SVG support via `dvisvgm` in MacTeX](https://tug.org/mactex/aboutdvisvgm.html).
+- [MacTeX](https://www.tug.org/mactex/) for legacy host rendering paths.
+- Docker Desktop (or another local Docker engine with the `docker` CLI). Normal SVG and PNG Generate/ReGenerate rendering uses the image configured in Main Settings (`danteev/texlive:latest` by default); host MacTeX/Ghostscript settings remain relevant to legacy paths such as PDF picture output and standalone vector-file conversion.
 - (Optional) [LaTeXiT-metadata](https://github.com/LaTeXiT-metadata/LaTeXiT-metadata-MacOS), used to convert [LaTeXiT](https://www.chachatelier.fr/latexit/) displays into IguanaTex displays
 
 
@@ -62,11 +61,11 @@ Prebuilt add-in (`.ppam`) and source-container (`.pptm`) files from the upstream
 3. **Create and set a temporary file folder**: IguanaTex needs access to a folder with read/write permissions to store temporary files.
    - The default is "C:\Temp\". If you have write permissions under "C:\", create the folder "C:\Temp\". You're all set.
    - If you cannot create this folder, choose or create a folder with write permission at any other location. In the IguanaTex tab, choose "Main Settings" and put the path to the folder of your choice. You can also use a relative path under the presentation's folder (e.g., ".\" for the presentation folder itself).
-4. **Install and set path to GhostScript and ImageMagick** (required for Picture outputs, except if using "Latex (DVI)" engine):
-   - Needed to convert intermediate PDF files into PNG before insertion into PowerPoint as a Picture object. In the Picture generation process, all LaTeX engines except "Latex (DVI)" output PDF files. Even when generating a Shape, it is often better to first generate a Picture then convert to Shape: Picture generation is faster and more robust, so it can be convenient to work on a display in Picture mode then do a final conversion to Shape, preserving the size.
-   - Set the **full** path to `gswin32c.exe` or `gswin64c.exe` (note the "`c`"!) and to ImageMagick's magick.exe in the "Main Settings" window.
-   - Best way to make sure the path is correct is to use the "..." button next to each path and navigate to the correct file.
-   - Some default paths include `%USERPROFILE%`. It is recommended to click on "..." to make sure the path gets properly converted to the actual user profile path.
+4. **Install Docker and make the rendering image available locally**:
+   - Ensure `docker version` can reach the local engine and that `docker image inspect danteev/texlive:latest` succeeds, or enter another locally available image reference in the **Docker image** field in Main Settings.
+   - IguanaTex starts one `--rm -i --network none` container per normal SVG/PNG Generate or ReGenerate operation. Each render gets a private workspace below the configured temporary root. TeX source, the generated render job, and supported root-level TeX/graphics auxiliary inputs are staged there and sent as a tar stream; only the final image bytes are returned on standard output.
+   - The configured temporary root itself is never used as the tar boundary. When the configured folder is the operating system's shared `%TEMP%`/`TMP` root, pre-existing files are not treated as auxiliary inputs at all. To use custom `.sty`, image, bibliography, font, or data files, select a dedicated Temp folder and place those root-level inputs there.
+   - Host Ghostscript and ImageMagick paths are not used by this Docker rendering path. Legacy host-execution operations continue to use their existing settings.
 5. (Optional) **Install and set path to TeX2img**:
    - Only needed for vector graphics support via EMF (compared to SVG, pros of EMF are: available on all PowerPoint versions, fully modifiable shapes; cons: some displays randomly suffer from distortions)
    - Download from [this link](https://www.ms.u-tokyo.ac.jp/~abenori/soft/index.html#TEX2IMG) (more details on TeX2img on their [GitHub repo](https://github.com/abenori/TeX2img))
@@ -122,10 +121,12 @@ For more details (e.g., how to **upgrade** or **uninstall**), please see [Tsung-
    - Set the Temp folder used for file conversions in one of the following ways:
      - (Recommended) The simplest is to let IguanaTex pick the Temp folder by selecting "Absolute" and leaving the path empty. The Temp folder will be inside the PowerPoint sandbox and everything will work without having to give permissions.
      - (If needed) If you need the Temp folder to be a specific folder outside the sandbox, or if you'd rather it be relative to your PowerPoint presentation (e.g., because you are using specific macros in an external file), you will need to give access permission to that folder to IguanaTex. The best thing to do is to drag and drop that folder from the Finder on top of the PowerPoint application. This will allow you to give permission to the whole folder at least for the current session.
-   - Verify that the following paths are set correctly by clicking on each "..." button next to them. If the path is correct, this should take you to its location; otherwise, you'll need to navigate to the relevant path. The defaults should match the MacTeX installation locations, but your installation may differ.
+   - Set the **Docker image** field to an image available to the local Docker engine. The default is `danteev/texlive:latest`.
+   - For legacy operations, verify that the following remaining host paths are set correctly where applicable:
      - GhostScript
-     - LaTeX binaries
      - libgs.dylib (used in SVG conversions; this should only be needed with older versions of MacTeX; leave empty if you get an error, which may happen if you use MacPorts' TeXLive for example)
+
+     These host paths are used only by legacy operations. Also verify `docker version` and `docker image inspect danteev/texlive:latest` (or the image configured in Main Settings) for normal SVG/PNG rendering.
      
      If you cannot find them or if IguanaTex complains that a command did not return, open a terminal and use `locate gs`, `locate pdflatex`, and `locate libgs`.
 
@@ -144,10 +145,8 @@ For more details (e.g., how to **upgrade** or **uninstall**), please see [Tsung-
 
 ### Other installation settings
 
-- If you have a non-standard LaTeX installation, you can specify in Main Settings the folder in which the executables are included, or more generally a prefix to be added to all commands (e.g., `wsl -e` for a LaTeX installation under the Windows Subsystem for Linux).
-- If you plan to use Tectonic:
-  - if you are specifying a path or prefix for the LaTeX installation as explained above, that will be used for the Tectonic executable as well, so please make sure Tectonic is under that path or that it can be called with the specified prefix;
-  - if you are not specifying any path or prefix, then the Tectonic executable needs to be on your PATH.
+- The Main Settings field that previously displayed the host TeX executable path is now the **Docker image** field. It controls normal Docker SVG/PNG Generate/ReGenerate jobs. The legacy `TeXExePath` registry/XML setting is retained separately for untouched host-execution paths.
+- If you select Tectonic for normal SVG/PNG rendering, the configured Docker image must provide `tectonic` on its internal `PATH`.
 - If you would like to have the option of using an external editor, e.g., when debugging LaTeX source code, you can specify the path to that editor in Main Settings. If you would like to use that editor by default over the IguanaTex edit window, check the "use as default" checkbox.
 
 ## Development
@@ -165,6 +164,11 @@ PowerPoint and Windows PowerShell 5.1 are required, and **Trust access to the
 VBA project object model** must be enabled. The separate `vba-sync.ps1`
 workflow is only for synchronizing an existing PPTM in `.build/office/` with
 `src/`.
+
+The Docker image reference used by runtime VBA has one runtime setting,
+`DockerImage`. Its default is `DEFAULT_DOCKER_IMAGE` in `src/Defaults.bas`
+(`danteev/texlive:latest`); no generated Office artifact is the source of that
+setting.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing canonical sources or
 automation. It documents the fork-specific history, complete repository map,
