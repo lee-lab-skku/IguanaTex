@@ -87,7 +87,7 @@ compile or validate it.
 | Synchronize an existing PPTM under `.build/office/` with `src/` | `scripts/vba-sync.ps1` |
 | Build a new PPTM without a PPTM input | `scripts/office-build.ps1 build` |
 | Validate an existing generated PPTM or PPAM without modifying the original | `scripts/office-build.ps1 validate` |
-| Convert a validated PPTM to PPAM | `scripts/office-build.ps1 ppam` |
+| Convert a PPTM to PPAM, validating by default | `scripts/office-build.ps1 ppam` |
 | Change project metadata or explicit references | Edit `office/project/`. |
 | Change Ribbon controls or callbacks | Edit both canonical files in `office/ribbon/`. |
 | Change macOS native helper behavior | Work in `IguanaTexHelper/` and follow its development guide. |
@@ -202,6 +202,9 @@ not rebuild project metadata, references, RibbonX, or the OOXML package.
 .\scripts\office-build.ps1 build `
     -PpamOutputPath .\.build\office\IguanaTeX.ppam
 
+# Fast local build with artifact validation deferred
+.\scripts\office-build.ps1 build -NoValidation
+
 # Validate without changing the supplied file
 .\scripts\office-build.ps1 validate `
     -InputPath .\.build\office\IguanaTeX.pptm
@@ -217,16 +220,25 @@ The three actions are intentionally distinct:
 - `build` rejects `-InputPath`; a PPTM must never become a fresh-build input.
 - `validate` copies its input to a temporary directory before compile, save, or
   add-in operations, and rejects output/overwrite options.
-- `ppam` first validates its PPTM input, then creates a staged add-in.
+- `ppam` validates its PPTM input by default, then creates a staged add-in.
 
 `-OutputPath` selects a nondefault destination. `-Force` is required to replace
 an existing output. `-CompileTimeoutSeconds` and `-OfficeTimeoutSeconds` default
 to 60 and accept values from 10 through 600. `-Visible` is for diagnostics, not
 normal unattended builds.
 
+`-NoValidation` is accepted by `build` and `ppam` for fast local iteration. It
+skips VBE compile validation, explicit post-build package gates, PowerPoint
+save/reopen validation, and PPAM load/unload validation. With
+`build -PpamOutputPath`, it applies to both outputs. Canonical input checks, exact
+PowerPoint process ownership, staged publishing, and transactional Ribbon
+injection still run because they are required to construct an artifact safely.
+The resulting files are explicitly reported as unverified; run the `validate`
+action without `-NoValidation` before distributing or relying on them.
+
 Outputs are written to short random staging names such as `IT-<token>.pptm` and
-published only after all gates pass. A failed build does not intentionally
-replace the requested destination.
+published only after all enabled gates pass. A failed build does not
+intentionally replace the requested destination.
 
 ### PPTM pipeline
 

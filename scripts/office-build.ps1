@@ -16,6 +16,8 @@ param(
 
     [switch]$Visible,
 
+    [switch]$NoValidation,
+
     [ValidateRange(10, 600)]
     [int]$CompileTimeoutSeconds = 60,
 
@@ -1671,7 +1673,7 @@ function Convert-PptmToFreshPpam {
     $saved = $false
 
     try {
-        Write-Host "Converting validated PPTM to PowerPoint add-in format..."
+        Write-Host "Converting PPTM to PowerPoint add-in format..."
         $applicationInfo = New-OwnedPowerPointApplication -ShowWindow:$ShowWindow
         $presentations = $applicationInfo.Application.Presentations
 
@@ -1680,7 +1682,7 @@ function Convert-PptmToFreshPpam {
 
         $presentation = Invoke-OwnedPowerPointOperation `
             -ApplicationInfo $applicationInfo `
-            -Description "Open validated PPTM for PPAM conversion" `
+            -Description "Open PPTM for PPAM conversion" `
             -Operation {
                 $presentations.Open(
                     $PptmPath,
@@ -1877,7 +1879,8 @@ function Invoke-FullPptmBuild {
         [string]$DestinationPath,
         [string]$OptionalPpamDestination,
         [object]$Configuration,
-        [object]$Layout
+        [object]$Layout,
+        [switch]$SkipValidation
     )
 
     Assert-OutputMayBeWritten -DestinationPath $DestinationPath -Overwrite:$Force
@@ -1900,28 +1903,32 @@ function Invoke-FullPptmBuild {
             -Layout $Layout `
             -ShowWindow:$Visible
 
-        $compileResult = Invoke-VbeCompileValidation `
-            -PresentationPath $pptmStage `
-            -TimeoutSeconds $CompileTimeoutSeconds
-        Assert-CompilePassed $compileResult
+        if (-not $SkipValidation) {
+            $compileResult = Invoke-VbeCompileValidation `
+                -PresentationPath $pptmStage `
+                -TimeoutSeconds $CompileTimeoutSeconds
+            Assert-CompilePassed $compileResult
 
-        [void](Assert-VbaPackageClosure -PackagePath $pptmStage)
+            [void](Assert-VbaPackageClosure -PackagePath $pptmStage)
+        }
 
         [void](Add-IguanaTexRibbon `
             -PackagePath $pptmStage `
             -RibbonDirectory $Layout.RibbonDirectory)
 
-        [void](Assert-IguanaTexOfficePackage `
-            -PackagePath $pptmStage `
-            -RibbonDirectory $Layout.RibbonDirectory `
-            -SourceDirectory $Layout.SourceDirectory)
+        if (-not $SkipValidation) {
+            [void](Assert-IguanaTexOfficePackage `
+                -PackagePath $pptmStage `
+                -RibbonDirectory $Layout.RibbonDirectory `
+                -SourceDirectory $Layout.SourceDirectory)
 
-        Invoke-PowerPointRoundTripValidation `
-            -ArtifactPath $pptmStage `
-            -Configuration $Configuration `
-            -Layout $Layout `
-            -SaveFirstOpen `
-            -ShowWindow:$Visible
+            Invoke-PowerPointRoundTripValidation `
+                -ArtifactPath $pptmStage `
+                -Configuration $Configuration `
+                -Layout $Layout `
+                -SaveFirstOpen `
+                -ShowWindow:$Visible
+        }
 
         if (-not [string]::IsNullOrWhiteSpace($OptionalPpamDestination)) {
             $ppamStage = New-StagingArtifactPath `
@@ -1929,10 +1936,11 @@ function Invoke-FullPptmBuild {
                 -RequiredExtension ".ppam"
 
             Invoke-PpamBuild `
-                -ValidatedPptmPath $pptmStage `
+                -SourcePptmPath $pptmStage `
                 -PpamStagePath $ppamStage `
                 -Configuration $Configuration `
-                -Layout $Layout
+                -Layout $Layout `
+                -SkipValidation:$SkipValidation
         }
 
         Publish-StagingArtifact `
@@ -1957,18 +1965,21 @@ function Invoke-FullPptmBuild {
 
 function Invoke-PpamBuild {
     param(
-        [string]$ValidatedPptmPath,
+        [string]$SourcePptmPath,
         [string]$PpamStagePath,
         [object]$Configuration,
-        [object]$Layout
+        [object]$Layout,
+        [switch]$SkipValidation
     )
 
     Convert-PptmToFreshPpam `
-        -PptmPath $ValidatedPptmPath `
+        -PptmPath $SourcePptmPath `
         -PpamPath $PpamStagePath `
         -ShowWindow:$Visible
 
-    [void](Assert-VbaPackageClosure -PackagePath $PpamStagePath)
+    if (-not $SkipValidation) {
+        [void](Assert-VbaPackageClosure -PackagePath $PpamStagePath)
+    }
 
     # SaveAs may preserve, remove, or rewrite customUI parts depending on the
     # Office build. Every final Office save is deliberately followed by an
@@ -1977,16 +1988,18 @@ function Invoke-PpamBuild {
         -PackagePath $PpamStagePath `
         -RibbonDirectory $Layout.RibbonDirectory)
 
-    [void](Assert-IguanaTexOfficePackage `
-        -PackagePath $PpamStagePath `
-        -RibbonDirectory $Layout.RibbonDirectory `
-        -SourceDirectory $Layout.SourceDirectory)
+    if (-not $SkipValidation) {
+        [void](Assert-IguanaTexOfficePackage `
+            -PackagePath $PpamStagePath `
+            -RibbonDirectory $Layout.RibbonDirectory `
+            -SourceDirectory $Layout.SourceDirectory)
 
-    Invoke-PowerPointAddInValidation `
-        -ArtifactPath $PpamStagePath `
-        -Configuration $Configuration `
-        -Layout $Layout `
-        -ShowWindow:$Visible
+        Invoke-PowerPointAddInValidation `
+            -ArtifactPath $PpamStagePath `
+            -Configuration $Configuration `
+            -Layout $Layout `
+            -ShowWindow:$Visible
+    }
 }
 
 function Invoke-IsolatedArtifactValidation {
@@ -2081,18 +2094,35 @@ try {
             if ($null -ne $ppamDestination) {
                 Write-Host "PPAM:   $ppamDestination"
             }
+            if ($NoValidation) {
+                Write-Warning (
+                    "Artifact validation is disabled. Outputs are unverified " +
+                    "and should not be distributed."
+                )
+            }
             Write-Host ""
 
             Invoke-FullPptmBuild `
                 -DestinationPath $destination `
                 -OptionalPpamDestination $ppamDestination `
                 -Configuration $configuration `
-                -Layout $layout
+                -Layout $layout `
+                -SkipValidation:$NoValidation
 
             Write-Host ""
-            Write-Host "BUILD OK: $destination"
+            if ($NoValidation) {
+                Write-Host "BUILD OK (VALIDATION SKIPPED): $destination"
+            }
+            else {
+                Write-Host "BUILD OK: $destination"
+            }
             if ($null -ne $ppamDestination) {
-                Write-Host "PPAM OK:  $ppamDestination"
+                if ($NoValidation) {
+                    Write-Host "PPAM OK (VALIDATION SKIPPED): $ppamDestination"
+                }
+                else {
+                    Write-Host "PPAM OK:  $ppamDestination"
+                }
             }
         }
 
@@ -2104,9 +2134,13 @@ try {
             if (
                 -not [string]::IsNullOrWhiteSpace($OutputPath) -or
                 -not [string]::IsNullOrWhiteSpace($PpamOutputPath) -or
-                $Force
+                $Force -or
+                $NoValidation
             ) {
-                throw "validate does not accept output or overwrite options."
+                throw (
+                    "validate does not accept output, overwrite, or " +
+                    "-NoValidation options."
+                )
             }
 
             $input = ConvertTo-AbsolutePath $InputPath -MustExist
@@ -2131,7 +2165,7 @@ try {
 
         "ppam" {
             if ([string]::IsNullOrWhiteSpace($InputPath)) {
-                throw "ppam requires -InputPath pointing to a validated PPTM."
+                throw "ppam requires -InputPath pointing to a PPTM."
             }
 
             if (-not [string]::IsNullOrWhiteSpace($PpamOutputPath)) {
@@ -2154,12 +2188,20 @@ try {
             Write-Host "Action: PPAM build"
             Write-Host "Input:  $input"
             Write-Host "Output: $destination"
+            if ($NoValidation) {
+                Write-Warning (
+                    "Artifact validation is disabled. The output is unverified " +
+                    "and should not be distributed."
+                )
+            }
             Write-Host ""
 
-            Invoke-IsolatedArtifactValidation `
-                -ArtifactPath $input `
-                -Configuration $configuration `
-                -Layout $layout
+            if (-not $NoValidation) {
+                Invoke-IsolatedArtifactValidation `
+                    -ArtifactPath $input `
+                    -Configuration $configuration `
+                    -Layout $layout
+            }
 
             $stage = New-StagingArtifactPath `
                 -DestinationPath $destination `
@@ -2167,10 +2209,11 @@ try {
 
             try {
                 Invoke-PpamBuild `
-                    -ValidatedPptmPath $input `
+                    -SourcePptmPath $input `
                     -PpamStagePath $stage `
                     -Configuration $configuration `
-                    -Layout $layout
+                    -Layout $layout `
+                    -SkipValidation:$NoValidation
 
                 Publish-StagingArtifact `
                     -StagingPath $stage `
@@ -2183,7 +2226,12 @@ try {
             }
 
             Write-Host ""
-            Write-Host "PPAM OK: $destination"
+            if ($NoValidation) {
+                Write-Host "PPAM OK (VALIDATION SKIPPED): $destination"
+            }
+            else {
+                Write-Host "PPAM OK: $destination"
+            }
         }
     }
 }
