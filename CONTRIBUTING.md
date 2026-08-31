@@ -95,6 +95,33 @@ compile or validate it.
 Do not use `vba-sync.ps1` as a substitute for the fresh build. Conversely, do
 not expect `office-build.ps1` to update canonical source from an edited PPTM.
 
+## Runtime rendering architecture
+
+All generated render artifacts use `src/DockerRender.bas`. Generate,
+ReGenerate, Picture/Shape conversion, and batch rendering compile LaTeX and
+produce PDF, PNG, or SVG in a disposable, network-disabled container. The
+standalone vector loader also converts PDF, DVI, XDV, PS, and EPS inputs to SVG
+there. A direct SVG import only inserts already-rendered bytes and therefore
+does not start a conversion job.
+
+There is no host-renderer fallback. Runtime VBA must not invoke a host LaTeX,
+Ghostscript, ImageMagick, TeX2img, pdfiumdraw, or dvisvgm executable. The only
+external-tool setting used by the renderer is `DockerImage`; engine, output,
+DPI, and latexmk choices remain normal render options. Retired host-path values
+in old settings XML are ignored. External-editor launching and the optional
+LaTeXiT metadata helper are interoperability features, not rendering paths.
+
+The configured image must already be available because jobs use `--pull never`.
+It must contain the selected TeX engine and each command required by the chosen
+path, including `sh`, `tar`, `timeout`, `awk`, `latexmk`, `dvisvgm`, `dvipng`,
+`dvipdfmx`, Ghostscript/`ps2pdf`, ImageMagick's `magick`, and `pdfcrop` as
+applicable. PDF-to-SVG jobs also require `pdftocairo` as a fallback for images
+whose dvisvgm cannot use the installed Ghostscript version. Every job receives a
+tar payload through standard input and returns only its final artifact through
+standard output. `KeepTempFiles` preserves the host-side job workspace and
+payload for diagnosis; container-only intermediate files disappear with the
+`--rm` container and are not part of that compatibility promise.
+
 ## Canonical Office state
 
 ### VBA components and UserForms
@@ -486,7 +513,9 @@ Never inject broken test source into `src/` or commit negative-test artifacts.
 Automation intentionally does not click the Ribbon. Before a release, load the
 generated PPAM manually and confirm that the IguanaTeX tab contains three groups
 and eight buttons. Exercise the buttons in an environment with the normal
-LaTeX, Ghostscript, ImageMagick, and optional helper dependencies as applicable.
+Docker image and optional LaTeXiT metadata helper as applicable. Cover both SVG
+modes, each platform's Picture output modes, and the supported standalone vector
+input formats; failure cases must not fall back to host renderer executables.
 
 ## Rules for human and AI contributors
 

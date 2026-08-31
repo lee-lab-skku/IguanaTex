@@ -526,19 +526,11 @@ Public Function GetBitmapVectorList() As Variant
 End Function
 
 Public Function GetVectorOutputTypeDisplayList() As Variant
-    #If Mac Then
-        GetVectorOutputTypeDisplayList = Array("SVG via DVI w/ dvisvgm", "SVG via PDF w/ dvisvgm")
-    #Else
-        GetVectorOutputTypeDisplayList = Array("SVG via DVI w/ dvisvgm", "SVG via PDF w/ dvisvgm", "EMF w/ TeX2img", "EMF w/ pdfiumdraw")
-    #End If
+    GetVectorOutputTypeDisplayList = Array("SVG via DVI in Docker", "SVG via PDF in Docker")
 End Function
 
 Public Function GetVectorOutputTypeList() As Variant
-    #If Mac Then
-        GetVectorOutputTypeList = Array("dvisvgm", "dvisvgmpdf")
-    #Else
-        GetVectorOutputTypeList = Array("dvisvgm", "dvisvgmpdf", "tex2img", "pdfiumdraw")
-    #End If
+    GetVectorOutputTypeList = Array("dvisvgm", "dvisvgmpdf")
 End Function
 
 Public Function GetPictureOutputTypeDisplayList() As Variant
@@ -612,113 +604,6 @@ Public Function AddDisplayShape(ByVal path As String, ByVal posX As Single, ByVa
     Next oshp
 End Function
 
-' Clean up Shape from EMF picture
-Public Function ConvertEMF(inSh As Shape, ByVal ScalingX As Single, ByVal ScalingY As Single, _
-                                           Optional ByVal posX As Long = -1, Optional ByVal posY As Long = -1, _
-                                           Optional ByVal FileType As String = "emf", _
-                                           Optional ByVal ConvertLines As Boolean = True, _
-                                           Optional ByVal CleanUp As Boolean = True) As Shape
-    With inSh
-        .ScaleHeight 1#, msoTrue
-        .ScaleWidth 1#, msoTrue
-        .LockAspectRatio = msoFalse
-        .ScaleHeight ScalingY, msoTrue
-        .ScaleWidth ScalingX, msoTrue
-        .LockAspectRatio = msoTrue
-    End With
-    
-    Dim NewShape As Shape
-    ' Get current slide, it will be used to group ranges
-    Dim sld As Slide
-    Dim SlideIndex As Long
-    SlideIndex = ActiveWindow.View.Slide.SlideIndex
-    Set sld = ActivePresentation.Slides(SlideIndex)
-
-    ' Convert EMF image to object
-    Dim Shr As ShapeRange
-    If CleanUp Then
-        Set Shr = inSh.Ungroup
-        If FileType = "emf" Then
-            Set Shr = Shr.Ungroup
-            ' Clean up
-            Shr.item(1).Delete
-            Shr.item(2).Delete
-            If Shr(3).GroupItems.count > 2 Then
-                Set NewShape = Shr(3)
-            Else ' only a single freeform, so not a group
-                Set NewShape = Shr(3).GroupItems(2)
-            End If
-            Shr(3).GroupItems(1).Delete
-        ElseIf FileType = "eps" Then
-            If CleanUp Then
-                Shr.GroupItems(1).Delete
-                Shr.GroupItems(1).Delete
-            End If
-            Set NewShape = Shr.Ungroup.Group
-        End If
-    Else
-        Set NewShape = inSh
-    End If
-    
-    If NewShape.Type = msoGroup Then
-    
-        Dim arr_group() As Variant
-        arr_group = GetAllShapesInGroup(NewShape)
-        FullyUngroupShape NewShape
-        Set NewShape = sld.Shapes.Range(arr_group).Group
-        
-        Dim emf_arr() As Variant ' gather all shapes to be regrouped later on
-        Dim delete_arr() As Variant ' gather all shapes to be deleted later on
-        Dim j_emf As Long, j_delete As Long
-        j_emf = 0
-        j_delete = 0
-        Dim s As Shape
-        For Each s In NewShape.GroupItems
-            j_emf = j_emf + 1
-            ReDim Preserve emf_arr(1 To j_emf)
-            If s.Type = msoLine Then
-                If ConvertLines And (s.Height > 0 Or s.Width > 0) Then
-                    emf_arr(j_emf) = LineToFreeform(s).Name
-                    j_delete = j_delete + 1
-                    ReDim Preserve delete_arr(1 To j_delete)
-                    delete_arr(j_delete) = s.Name
-                Else
-                    emf_arr(j_emf) = s.Name
-                End If
-            Else
-                emf_arr(j_emf) = s.Name
-                If s.Fill.Visible = msoTrue Then
-                    s.Line.Visible = msoFalse
-                Else
-                    s.Line.Visible = msoTrue
-                End If
-            End If
-        Next
-        NewShape.Ungroup
-        If j_delete > 0 Then
-            sld.Shapes.Range(delete_arr).Delete
-        End If
-        Set NewShape = sld.Shapes.Range(emf_arr).Group
-    
-    Else
-        If NewShape.Type = msoLine Then
-            Dim newShapeName As String
-            newShapeName = LineToFreeform(NewShape).Name
-            NewShape.Delete
-            Set NewShape = sld.Shapes(newShapeName)
-        Else
-            NewShape.Line.Visible = msoFalse
-        End If
-    End If
-    
-    NewShape.LockAspectRatio = msoTrue
-    If posX <> -1 Then NewShape.Left = posX
-    If posY <> -1 Then NewShape.Top = posY
-    
-    Set ConvertEMF = NewShape
-End Function
-
-
 Public Function convertSVG(inSh As Shape, ByVal ScalingX As Single, ByVal ScalingY As Single, _
                            Optional ByVal posX As Long = -1, Optional ByVal posY As Long = -1) As Shape
     With inSh
@@ -788,95 +673,6 @@ Done:
 handler:
     ApplySVGEdit = False
 End Function
-
-Private Function LineToFreeform(ByVal s As Shape) As Shape
-    Dim t As Double
-    t = s.Line.Weight
-    Dim ApplyTransform As Boolean
-    ApplyTransform = True
-    
-    Dim bHflip As Boolean
-    Dim bVflip As Boolean
-    Dim nBegin As Long
-    Dim nEnd As Long
-    Dim aC(1 To 4, 1 To 2) As Double
-    
-    With s
-        aC(1, 1) = .Left:           aC(1, 2) = .Top
-        aC(2, 1) = .Left + .Width:  aC(2, 2) = .Top
-        aC(3, 1) = .Left:           aC(3, 2) = .Top + .Height
-        aC(4, 1) = .Left + .Width:  aC(4, 2) = .Top + .Height
-    
-        bHflip = .HorizontalFlip
-        bVflip = .VerticalFlip
-    End With
-    
-    If bHflip = bVflip Then
-        If bVflip = False Then
-            ' down to right -- South-East
-            nBegin = 1: nEnd = 4
-        Else
-            ' up to left -- North-West
-            nBegin = 4: nEnd = 1
-        End If
-    ElseIf bHflip = False Then
-        ' up to right -- North-East
-        nBegin = 3: nEnd = 2
-    Else
-        ' down to left -- South-West
-        nBegin = 2: nEnd = 3
-    End If
-    Dim xs As Double: xs = aC(nBegin, 1)
-    Dim ys As Double: ys = aC(nBegin, 2)
-    Dim xe As Double: xe = aC(nEnd, 1)
-    Dim ye As Double: ye = aC(nEnd, 2)
-    
-    ' Get unit vector in orthogonal direction
-    Dim xd As Double: xd = xe - xs
-    Dim yd As Double: yd = ye - ys
-    
-    Dim s_length As Double: s_length = Sqr(xd * xd + yd * yd)
-    Dim n_x As Double
-    Dim n_y As Double
-    If s_length > 0 Then
-        n_x = -yd / s_length
-        n_y = xd / s_length
-    Else
-        n_x = 0
-        n_y = 0
-    End If
-    
-    Dim x1 As Double: x1 = xs + n_x * t / 2
-    Dim y1 As Double: y1 = ys + n_y * t / 2
-    Dim x2 As Double: x2 = xe + n_x * t / 2
-    Dim y2 As Double: y2 = ye + n_y * t / 2
-    Dim x3 As Double: x3 = xe - n_x * t / 2
-    Dim y3 As Double: y3 = ye - n_y * t / 2
-    Dim x4 As Double: x4 = xs - n_x * t / 2
-    Dim y4 As Double: y4 = ys - n_y * t / 2
-        
-    'End If
-    
-    
-    If ApplyTransform Then
-        Dim builder As FreeformBuilder
-        Set builder = ActiveWindow.Selection.SlideRange(1).Shapes.BuildFreeform(msoEditingCorner, x1, y1)
-        builder.AddNodes msoSegmentLine, msoEditingAuto, x2, y2
-        builder.AddNodes msoSegmentLine, msoEditingAuto, x3, y3
-        builder.AddNodes msoSegmentLine, msoEditingAuto, x4, y4
-        builder.AddNodes msoSegmentLine, msoEditingAuto, x1, y1
-        Dim oSh As Shape
-        Set oSh = builder.ConvertToShape
-        oSh.Fill.ForeColor = s.Line.ForeColor
-        oSh.Fill.Visible = msoTrue
-        oSh.Line.Visible = msoFalse
-        oSh.Rotation = s.Rotation
-        Set LineToFreeform = oSh
-    Else
-        Set LineToFreeform = s
-    End If
-End Function
-
 
 Public Function ArrayLength(arr As Variant) As Long
     On Error GoTo handler

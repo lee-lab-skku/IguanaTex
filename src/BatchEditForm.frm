@@ -44,7 +44,6 @@ Private Sub LoadSettings()
     ComboBoxLaTexEngine.List = GetLaTexEngineDisplayList()
     ComboBoxLaTexEngine.ListIndex = GetITSetting("LaTeXEngineID", 0)
     TextBoxTempFolder.Text = GetTempPath()
-    'CheckBoxEMF.Value = CBool(GetITSetting("EMFoutput", False))
     ComboBoxBitmapVector.List = GetBitmapVectorList()
     ComboBoxBitmapVector.ListIndex = GetITSetting("BitmapVector", 0)
     
