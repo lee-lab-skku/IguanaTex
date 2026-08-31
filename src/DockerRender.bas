@@ -634,7 +634,8 @@ Private Sub DeleteDockerWorkspace(ByVal WorkspacePath As String)
         If MacFs.FolderExists(WorkspacePath) Then MacFs.FindDelete WorkspacePath, "*"
         Set MacFs = Nothing
     #Else
-        Dim fs As New FileSystemObject
+        Dim fs As Object
+        Set fs = CreateObject("Scripting.FileSystemObject")
         If fs.FolderExists(WorkspacePath) Then fs.DeleteFolder WorkspacePath, True
         Set fs = Nothing
     #End If

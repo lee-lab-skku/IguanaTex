@@ -445,7 +445,8 @@ Private Function GetLatexTextFromLatexItShape(vSh As Shape) As String
         End If
     #Else
         ' no need to go through all this trouble if the user does not have the LaTeXiT metadata extractor...
-        Dim fs As New FileSystemObject
+        Dim fs As Object
+        Set fs = CreateObject("Scripting.FileSystemObject")
         If fs.FileExists(latexit_metadata_command) Then
             ' Shape needs to be a picture, if so we save it as EMF
             picPath = vbNullString

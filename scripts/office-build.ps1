@@ -47,6 +47,7 @@ $VBEXT_CT_STDMODULE = 1
 $VBEXT_CT_CLASSMODULE = 2
 $VBEXT_CT_MSFORM = 3
 $VBEXT_CT_DOCUMENT = 100
+$SCRIPTING_RUNTIME_GUID = "{420B2830-E718-11CF-893D-00A0C9054228}"
 
 $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $officeModulePath = Join-Path $PSScriptRoot "lib\IguanaTex.Office.psm1"
@@ -478,6 +479,16 @@ function Read-CanonicalConfiguration {
 
         if (-not [Guid]::TryParse([string]$reference.guid, [ref]$parsedGuid)) {
             throw "Invalid explicit reference GUID: $($reference.guid)"
+        }
+
+        if (
+            $parsedGuid -eq [Guid]$SCRIPTING_RUNTIME_GUID -or
+            [string]$reference.name -eq "Scripting"
+        ) {
+            throw (
+                "Microsoft Scripting Runtime must not be declared as an " +
+                "explicit VBA project reference."
+            )
         }
     }
 
@@ -961,6 +972,14 @@ function Assert-VbaReferences {
             if ($null -ne $_.Name) { $_.Name } else { $_.Guid }
         }) -join ", "
         throw "Broken VBA reference(s): $names"
+    }
+
+    $scriptingRuntime = @($actual | Where-Object {
+        $_.Guid -eq $SCRIPTING_RUNTIME_GUID -or $_.Name -eq "Scripting"
+    })
+
+    if ($scriptingRuntime.Count -gt 0) {
+        throw "Microsoft Scripting Runtime must not be a VBA project reference."
     }
 
     foreach ($defaultName in @("VBA", "PowerPoint", "stdole", "Office")) {

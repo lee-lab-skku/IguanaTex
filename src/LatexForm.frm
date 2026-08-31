@@ -256,7 +256,8 @@ Sub ButtonRun_Click()
     #If Mac Then
         Dim fs As New MacFileSystemObject
     #Else
-        Dim fs As New FileSystemObject
+        Dim fs As Object
+        Set fs = CreateObject("Scripting.FileSystemObject")
     #End If
     FrameProcess.Visible = True
     
@@ -1154,8 +1155,9 @@ Private Function BoundingBoxString(ByVal BBXFile As String) As String
     #Else
         OutputDpi = val(OutputDpiString)
         Const ForReading As Long = 1
-        Dim fs As New FileSystemObject
-        Dim txtStream As TextStream
+        Dim fs As Object
+        Dim txtStream As Object
+        Set fs = CreateObject("Scripting.FileSystemObject")
         Set txtStream = fs.OpenTextFile(BBXFile, ForReading, False)
         Do While Not txtStream.AtEndOfStream
         tmptext = txtStream.ReadLine

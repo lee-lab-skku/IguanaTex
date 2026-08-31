@@ -391,7 +391,8 @@ Public Sub WriteToFile(ByVal TempPath As String, ByVal FilePrefix As String, ByV
     
         Set fs = Nothing
     #Else
-        Dim fs As New FileSystemObject
+        Dim fs As Object
+        Set fs = CreateObject("Scripting.FileSystemObject")
         If fs.FileExists(TempPath & FilePrefix & ".png") And FileExtension <> ".xml" Then
             fs.DeleteFile TempPath + FilePrefix + "*.*" 'Make sure we don't keep old files
         End If
@@ -426,7 +427,8 @@ Public Function FileExists(ByVal pathname As String) As Boolean
     #If Mac Then
         Dim fs As New MacFileSystemObject
     #Else
-        Dim fs As New FileSystemObject
+        Dim fs As Object
+        Set fs = CreateObject("Scripting.FileSystemObject")
     #End If
     FileExists = fs.FileExists(pathname)
     Set fs = Nothing

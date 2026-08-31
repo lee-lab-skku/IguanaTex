@@ -68,8 +68,7 @@ The sync and build scripts require:
 - Windows desktop PowerPoint;
 - Windows PowerShell 5.1 running in an STA apartment;
 - PowerPoint's **Trust access to the VBA project object model** setting;
-- permission to instantiate PowerPoint and access VBIDE automation;
-- the Microsoft Scripting Runtime type library registered on the machine.
+- permission to instantiate PowerPoint and access VBIDE automation.
 
 Close unrelated PowerPoint windows before running the scripts. PowerPoint is
 effectively single-instance in several automation scenarios. The build and
@@ -134,17 +133,10 @@ canonical empty value and validates the fresh default.
 
 A fresh PowerPoint project is expected to contain one healthy reference each
 to `VBA`, `PowerPoint`, `stdole`, and `Office`. Importing a real UserForm adds
-`MSForms`; do not inject it explicitly. The only current explicit dependency is
-Microsoft Scripting Runtime:
-
-```text
-GUID    {420B2830-E718-11CF-893D-00A0C9054228}
-Version 1.0
-```
-
-The build rechecks GUID, major/minor version, uniqueness, and `IsBroken` after
-adding the reference. Removing it causes compilation to fail at
-`FileSystemObject`, which is an intentional negative test for the compile gate.
+`MSForms`; do not inject it explicitly. There are currently no explicit project
+references in `references.json`. Windows runtime use of FileSystemObject and
+Dictionary COM objects is late-bound, and the build rejects a Microsoft
+Scripting Runtime project reference if one is present.
 
 ### RibbonX
 
@@ -244,9 +236,9 @@ The `build` action performs these stages:
 2. Explicitly launch a hidden PowerPoint `/AUTOMATION` process and bind COM only
    when its HWND maps to that exact PID and process start time.
 3. Create a fresh presentation and `SaveAs` macro-enabled PPTM format 25.
-4. Apply project metadata, add explicit references, import canonical
-   components, and validate components and references including auto-added
-   MSForms.
+4. Apply project metadata, import canonical components, and validate components
+   and references including auto-added MSForms and the absence of Microsoft
+   Scripting Runtime.
 5. Save and completely close PowerPoint. The initial slide/master/theme and
    document properties are disposable fresh scaffolding.
 6. Run the VBE compile gate in a separate helper process.
@@ -265,15 +257,13 @@ When commit `feb21f9` introduced this pipeline, it was exercised against the
 canonical source in this repository on Windows PowerPoint. The verified
 baseline included:
 
-- a canonical-only fresh PPTM build with project metadata, Scripting Runtime,
-  all modules/classes/forms, and a passing VBE compile;
+- a canonical-only fresh PPTM build with project metadata, all
+  modules/classes/forms, and a passing VBE compile;
 - package closure, both Ribbon versions, callback resolution, and Ribbon
   persistence across PowerPoint save/reopen cycles;
 - a PPAM conversion followed by package checks and two add-in load/unload/remove
   cycles;
-- a missing-Scripting case that failed compilation at `FileSystemObject`, had
-  its compiler dialog detected and dismissed, and exited nonzero;
-- an intentionally undefined VBA type with the same controlled compile failure
+- an intentionally undefined VBA type with a controlled compile failure
   and no permanent modal hang;
 - an unrelated PowerPoint sentinel process remaining alive while ambiguous COM
   ownership failed safely.
@@ -468,9 +458,7 @@ PPAM conversion and add-in reload.
 
 Use only disposable copies and verify all of the following:
 
-- remove Microsoft Scripting Runtime and confirm a detected compile-error
-  dialog, `EnabledAfter = True`, nonzero validation, and successful cleanup;
-- add a module with an intentionally undefined type and confirm the same
+- add a module with an intentionally undefined type and confirm a
   controlled failure without a persistent dialog;
 - keep a separate PowerPoint presentation/process alive and confirm an
   ambiguous validator returns `IsolationFailed` without closing or killing the

@@ -129,7 +129,8 @@ Private Sub DoInsertVectorGraphicsFile()
     #If Mac Then
         Dim fs As New MacFileSystemObject
     #Else
-        Dim fs As New FileSystemObject
+        Dim fs As Object
+        Set fs = CreateObject("Scripting.FileSystemObject")
     #End If
     
     Dim StartFolder As String
