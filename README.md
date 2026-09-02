@@ -298,9 +298,10 @@ its best-effort Mac testing artifacts.
 
 ## AI disclosure
 
-This fork uses AI-assisted coding and documentation tools. AI-assisted changes
-are reviewed and validated through the repository's development workflows before
-acceptance.
+This fork was developed with substantial AI assistance and has had no external review.
+Furthermore, the intended workflow for this fork encourages active use of AI.
+Although AI-assisted changes are reviewed through the repository's validation gates,
+The end-user must treat this project at their own risk.
 
 ## License
 
