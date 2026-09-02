@@ -55,6 +55,7 @@ $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $officeModulePath = Join-Path $PSScriptRoot "lib\IguanaTex.Office.psm1"
 $packageModulePath = Join-Path $PSScriptRoot "lib\IguanaTex.Package.psm1"
 $compileModulePath = Join-Path $PSScriptRoot "lib\IguanaTex.Compile.psm1"
+$userFormsBuildScript = Join-Path $PSScriptRoot "userforms-build.ps1"
 
 foreach ($modulePath in @(
     $officeModulePath,
@@ -399,7 +400,7 @@ function ConvertTo-AbsolutePath {
 }
 
 function Get-CanonicalLayout {
-    $sourceDirectory = Join-Path $projectRoot "src"
+    $sourceDirectory = Join-Path $projectRoot ".build\vba-source"
     $projectMetadataPath = Join-Path $projectRoot "office\project\project.json"
     $referencesPath = Join-Path $projectRoot "office\project\references.json"
     $ribbonDirectory = Join-Path $projectRoot "office\ribbon"
@@ -2064,6 +2065,14 @@ function Invoke-IsolatedArtifactValidation {
 $exitCode = 0
 
 try {
+    if (-not (Test-Path -LiteralPath $userFormsBuildScript -PathType Leaf)) {
+        throw "Required UserForm build script not found: $userFormsBuildScript"
+    }
+
+    & $userFormsBuildScript `
+        -Mode Pinned `
+        -OutputDirectory (Join-Path $projectRoot ".build\vba-source")
+
     $layout = Get-CanonicalLayout
     $configuration = Read-CanonicalConfiguration -Layout $layout
     [void](Assert-VbaSourceClosure -SourceDirectory $layout.SourceDirectory)

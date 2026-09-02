@@ -8,6 +8,8 @@ param(
 
     [switch]$Prune,
 
+    [string[]]$UpdateUserForm = @(),
+
     [string[]]$UpdateFrx = @(),
 
     [switch]$VerifyFrx,
@@ -20,9 +22,12 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-Import-Module (
-    Join-Path $PSScriptRoot "lib\IguanaTex.Office.psm1"
-) -Force -DisableNameChecking -ErrorAction Stop
+foreach ($modulePath in @(
+    (Join-Path $PSScriptRoot "lib\IguanaTex.Office.psm1"),
+    (Join-Path $PSScriptRoot "lib\IguanaTex.UserForms.psm1")
+)) {
+    Import-Module $modulePath -Force -DisableNameChecking -ErrorAction Stop
+}
 
 $VBEXT_CT_DOCUMENT = 100
 
@@ -35,7 +40,8 @@ function Get-ProjectLayout {
     $projectRoot = (Resolve-Path -LiteralPath (
         Join-Path $ScriptDirectory ".."
     )).Path
-    $sourceDirectory = Join-Path $projectRoot "src"
+    $canonicalDirectory = Join-Path $projectRoot "src"
+    $sourceDirectory = Join-Path $projectRoot ".build\vba-source"
     $pptmDirectory = Join-Path $projectRoot ".build\office"
     $pptmFiles = @()
 
@@ -58,6 +64,7 @@ function Get-ProjectLayout {
 
     return [PSCustomObject]@{
         ProjectRoot = $projectRoot
+        CanonicalDirectory = $canonicalDirectory
         SourceDirectory = $sourceDirectory
         PptmPath = $pptmFiles[0].FullName
     }
@@ -93,7 +100,7 @@ function Test-FilesEqual {
     return ((Get-ExactFileHash $Left) -eq (Get-ExactFileHash $Right))
 }
 
-function Normalize-UpdateFrxNames {
+function Normalize-RequestedNames {
     param([string[]]$Values)
 
     $result = @()
@@ -224,136 +231,208 @@ function Remove-FileIfPresent {
     return $true
 }
 
-function Sync-ExportedTree {
+function Get-TextComponentFiles {
+    param([string]$Directory)
+
+    $files = @()
+    foreach ($pattern in @("*.bas", "*.cls")) {
+        $files += @(Get-ChildItem -LiteralPath $Directory -Filter $pattern -File)
+    }
+    return @($files | Sort-Object Extension, Name)
+}
+
+function Sync-ExportedTextComponents {
     param(
         [string]$StagingDirectory,
         [string]$CanonicalDirectory,
         [switch]$PruneFiles,
-        [string[]]$FrxNames,
         [switch]$WhatIfOnly
     )
 
-    if (-not (Test-Path -LiteralPath $CanonicalDirectory -PathType Container)) {
-        if ($WhatIfOnly) {
-            Write-Host "Would create directory: $CanonicalDirectory"
-        }
-        else {
-            [void](New-Item -ItemType Directory -Path $CanonicalDirectory)
-            Write-Host "Created directory: $CanonicalDirectory"
-        }
-    }
-
-    $stageFiles = @(Get-VbaSourceFiles $StagingDirectory)
+    $stageFiles = @(Get-TextComponentFiles $StagingDirectory)
     $stageKeys = @{}
-
     foreach ($file in $stageFiles) {
         $key = $file.Name.ToLowerInvariant()
         $stageKeys[$key] = $true
-
-        $destination = Join-Path $CanonicalDirectory $file.Name
-
         [void](Copy-FileIfChanged `
             -Source $file.FullName `
-            -Destination $destination `
+            -Destination (Join-Path $CanonicalDirectory $file.Name) `
             -WhatIfOnly:$WhatIfOnly)
     }
 
-    if ($PruneFiles -and
-        (Test-Path -LiteralPath $CanonicalDirectory -PathType Container)) {
-
-        $canonicalTextFiles = @(Get-VbaSourceFiles $CanonicalDirectory)
-
-        foreach ($file in $canonicalTextFiles) {
-            $key = $file.Name.ToLowerInvariant()
-
-            if (-not $stageKeys.ContainsKey($key)) {
-                [void](Remove-FileIfPresent `
-                    -Path $file.FullName `
-                    -WhatIfOnly:$WhatIfOnly)
-
-                if ($file.Extension.ToLowerInvariant() -eq ".frm") {
-                    $frxPath = Join-Path $CanonicalDirectory ($file.BaseName + ".frx")
-
-                    [void](Remove-FileIfPresent `
-                        -Path $frxPath `
-                        -WhatIfOnly:$WhatIfOnly)
-                }
+    if ($PruneFiles) {
+        foreach ($file in @(Get-TextComponentFiles $CanonicalDirectory)) {
+            if (-not $stageKeys.ContainsKey($file.Name.ToLowerInvariant())) {
+                [void](Remove-FileIfPresent -Path $file.FullName -WhatIfOnly:$WhatIfOnly)
             }
         }
     }
+}
 
-    $forms = @(
-        Get-ChildItem -LiteralPath $StagingDirectory -Filter "*.frm" -File |
-        Sort-Object Name
-    )
+function Get-NormalizedVbaText {
+    param([string]$Path)
 
-    $requested = @{}
+    $text = Get-Content -Raw -LiteralPath $Path
+    $text = (($text -replace "`r`n", "`n") -replace "`r", "`n").TrimEnd([char[]]"`n")
 
-    foreach ($name in $FrxNames) {
-        $requested[$name.ToLowerInvariant()] = $true
-    }
+    # The VBE rewrites identifier capitalization to the spelling most recently
+    # registered in the project. This can change an otherwise identical export
+    # (for example, UseDvi -> UseDVI) after an import/save round trip. VBA
+    # identifiers and keywords are case-insensitive, but string literals and
+    # apostrophe comments are not comparison noise, so preserve those regions.
+    $builder = New-Object System.Text.StringBuilder
+    $inString = $false
+    $inComment = $false
+    $canStartRemComment = $true
 
-    $updateAll = $requested.ContainsKey("all")
-    $stageFormNames = @{}
+    for ($index = 0; $index -lt $text.Length; $index++) {
+        $character = $text[$index]
 
-    foreach ($form in $forms) {
-        $formName = $form.BaseName
-        $stageFormNames[$formName.ToLowerInvariant()] = $true
+        if ($character -eq "`n") {
+            [void]$builder.Append($character)
+            $inComment = $false
+            $canStartRemComment = $true
+            continue
+        }
 
-        $stageFrx = Join-Path $StagingDirectory ($formName + ".frx")
-        $canonicalFrx = Join-Path $CanonicalDirectory ($formName + ".frx")
+        if ($inComment) {
+            [void]$builder.Append($character)
+            continue
+        }
 
-        $hasStageFrx = Test-Path -LiteralPath $stageFrx -PathType Leaf
-        $hasCanonicalFrx = Test-Path -LiteralPath $canonicalFrx -PathType Leaf
-
-        $explicitUpdate = (
-            $updateAll -or
-            $requested.ContainsKey($formName.ToLowerInvariant())
-        )
-
-        if (-not $hasCanonicalFrx) {
-            if ($hasStageFrx) {
-                if ($WhatIfOnly) {
-                    Write-Host "Would add FRX: $canonicalFrx"
+        if ($inString) {
+            [void]$builder.Append($character)
+            if ($character -eq '"') {
+                if ($index + 1 -lt $text.Length -and $text[$index + 1] -eq '"') {
+                    [void]$builder.Append($text[$index + 1])
+                    $index++
                 }
                 else {
-                    Copy-Item -LiteralPath $stageFrx -Destination $canonicalFrx -Force
-                    Write-Host "Added FRX: $canonicalFrx"
+                    $inString = $false
                 }
             }
-
             continue
         }
 
-        if (-not $explicitUpdate) {
-            Write-Host "Preserved FRX: $canonicalFrx"
+        if ($character -eq "'") {
+            [void]$builder.Append($character)
+            $inComment = $true
             continue
         }
 
-        if ($hasStageFrx) {
-            if (Test-FilesEqual $stageFrx $canonicalFrx) {
-                Write-Host "FRX unchanged: $canonicalFrx"
+        if ($character -eq '"') {
+            [void]$builder.Append($character)
+            $inString = $true
+            $canStartRemComment = $false
+            continue
+        }
+
+        $codePoint = [int]$character
+        $isIdentifierStart = (
+            ($codePoint -ge [int][char]'A' -and $codePoint -le [int][char]'Z') -or
+            ($codePoint -ge [int][char]'a' -and $codePoint -le [int][char]'z') -or
+            $character -eq '_'
+        )
+        if ($isIdentifierStart) {
+            $tokenStart = $index
+            while ($index + 1 -lt $text.Length) {
+                $nextCharacter = $text[$index + 1]
+                $nextCodePoint = [int]$nextCharacter
+                $isIdentifierPart = (
+                    ($nextCodePoint -ge [int][char]'A' -and $nextCodePoint -le [int][char]'Z') -or
+                    ($nextCodePoint -ge [int][char]'a' -and $nextCodePoint -le [int][char]'z') -or
+                    ($nextCodePoint -ge [int][char]'0' -and $nextCodePoint -le [int][char]'9') -or
+                    $nextCharacter -eq '_'
+                )
+                if (-not $isIdentifierPart) {
+                    break
+                }
+                $index++
             }
-            elseif ($WhatIfOnly) {
-                Write-Host "Would update FRX: $canonicalFrx"
+
+            $token = $text.Substring($tokenStart, $index - $tokenStart + 1)
+            [void]$builder.Append($token.ToLowerInvariant())
+            if ($canStartRemComment -and $token -ieq "Rem") {
+                $inComment = $true
+            }
+            elseif ($token -ieq "Then" -or $token -ieq "Else") {
+                $canStartRemComment = $true
             }
             else {
-                Copy-Item -LiteralPath $stageFrx -Destination $canonicalFrx -Force
-                Write-Host "Updated FRX: $canonicalFrx"
+                $canStartRemComment = $false
             }
+            continue
+        }
+
+        if ([char]::IsWhiteSpace($character)) {
+            [void]$builder.Append($character)
+            continue
+        }
+
+        if ($character -eq ':') {
+            [void]$builder.Append($character)
+            $canStartRemComment = -not (
+                $index + 1 -lt $text.Length -and $text[$index + 1] -eq '='
+            )
+            continue
+        }
+
+        if ($codePoint -ge [int][char]'A' -and $codePoint -le [int][char]'Z') {
+            [void]$builder.Append([char]($codePoint + 32))
         }
         else {
-            [void](Remove-FileIfPresent `
-                -Path $canonicalFrx `
-                -WhatIfOnly:$WhatIfOnly)
+            [void]$builder.Append($character)
+        }
+        if (-not [char]::IsDigit($character) -or -not $canStartRemComment) {
+            $canStartRemComment = $false
         }
     }
 
-    if (-not $updateAll) {
-        foreach ($name in $requested.Keys) {
-            if (-not $stageFormNames.ContainsKey($name)) {
-                throw "Requested FRX form not found in PPTM export: $name"
-            }
+    return $builder.ToString()
+}
+
+function Test-VbaTextEqual {
+    param(
+        [string]$Left,
+        [string]$Right
+    )
+
+    if (-not (Test-Path -LiteralPath $Left -PathType Leaf)) {
+        return $false
+    }
+    if (-not (Test-Path -LiteralPath $Right -PathType Leaf)) {
+        return $false
+    }
+
+    # Preserve the historical byte-exact comparison as the fast and preferred
+    # path. Only fall back to VBA-aware comparison for VBE casing churn.
+    if (Test-FilesEqual $Left $Right) {
+        return $true
+    }
+
+    return (Get-NormalizedVbaText $Left) -ceq (Get-NormalizedVbaText $Right)
+}
+
+function Assert-ExpectedFormSet {
+    param(
+        [string]$Directory,
+        [string[]]$ExpectedNames
+    )
+
+    $expected = @($ExpectedNames | ForEach-Object { $_.ToLowerInvariant() } | Sort-Object -Unique)
+    $actual = @(
+        Get-ChildItem -LiteralPath $Directory -Filter "*.frm" -File |
+        ForEach-Object { $_.BaseName.ToLowerInvariant() } |
+        Sort-Object -Unique
+    )
+    if (($expected -join "`n") -cne ($actual -join "`n")) {
+        throw "Exported UserForm set does not match the canonical manifest. Expected: $($expected -join ', '); actual: $($actual -join ', ')"
+    }
+
+    foreach ($name in $ExpectedNames) {
+        $frxPath = Join-Path $Directory ($name + ".frx")
+        if (-not (Test-Path -LiteralPath $frxPath -PathType Leaf)) {
+            throw "Exported UserForm is missing its FRX companion: $frxPath"
         }
     }
 }
@@ -361,111 +440,74 @@ function Sync-ExportedTree {
 function Verify-ExportedTree {
     param(
         [string]$StagingDirectory,
-        [string]$CanonicalDirectory,
-        [switch]$IncludeFrx
+        [string]$GeneratedDirectory,
+        [string[]]$FormNames,
+        [string]$FrxEditPath
     )
-
-    if (-not (Test-Path -LiteralPath $CanonicalDirectory -PathType Container)) {
-        Write-Host "Missing source directory: $CanonicalDirectory"
-        return 1
-    }
 
     $differenceCount = 0
-
-    $stageFiles = @(Get-VbaSourceFiles $StagingDirectory)
-    $canonicalFiles = @(Get-VbaSourceFiles $CanonicalDirectory)
-
+    $stageFiles = @(Get-TextComponentFiles $StagingDirectory)
+    $generatedFiles = @(Get-TextComponentFiles $GeneratedDirectory)
     $stageMap = @{}
-    $canonicalMap = @{}
+    $generatedMap = @{}
+    foreach ($file in $stageFiles) { $stageMap[$file.Name.ToLowerInvariant()] = $file }
+    foreach ($file in $generatedFiles) { $generatedMap[$file.Name.ToLowerInvariant()] = $file }
 
-    foreach ($file in $stageFiles) {
-        $stageMap[$file.Name.ToLowerInvariant()] = $file
-    }
-
-    foreach ($file in $canonicalFiles) {
-        $canonicalMap[$file.Name.ToLowerInvariant()] = $file
-    }
-
-    $allKeys = @(
-        @($stageMap.Keys) + @($canonicalMap.Keys) |
-        Sort-Object -Unique
-    )
-
+    $allKeys = @(@($stageMap.Keys) + @($generatedMap.Keys) | Sort-Object -Unique)
     foreach ($key in $allKeys) {
-        $inStage = $stageMap.ContainsKey($key)
-        $inCanonical = $canonicalMap.ContainsKey($key)
-
-        if (-not $inStage) {
-            Write-Host "EXTRA in source: $($canonicalMap[$key].Name)"
+        if (-not $stageMap.ContainsKey($key)) {
+            Write-Host "EXTRA in canonical source: $($generatedMap[$key].Name)"
             $differenceCount++
-            continue
         }
-
-        if (-not $inCanonical) {
-            Write-Host "MISSING in source: $($stageMap[$key].Name)"
+        elseif (-not $generatedMap.ContainsKey($key)) {
+            Write-Host "MISSING in canonical source: $($stageMap[$key].Name)"
             $differenceCount++
-            continue
         }
-
-        if (-not (Test-FilesEqual `
-            $stageMap[$key].FullName `
-            $canonicalMap[$key].FullName)) {
-
+        elseif (-not (Test-VbaTextEqual $stageMap[$key].FullName $generatedMap[$key].FullName)) {
             Write-Host "DIFF: $($stageMap[$key].Name)"
             $differenceCount++
         }
     }
 
-    if ($IncludeFrx) {
-        Write-Warning "FRX verification is byte-level only and may be nondeterministic."
+    Assert-ExpectedFormSet -Directory $StagingDirectory -ExpectedNames $FormNames
+    Assert-ExpectedFormSet -Directory $GeneratedDirectory -ExpectedNames $FormNames
+    $reportRoot = Join-Path $StagingDirectory ".canonical-comparison"
+    [void](New-Item -ItemType Directory -Path $reportRoot -Force)
 
-        $stageFrxFiles = @(
-            Get-ChildItem -LiteralPath $StagingDirectory -Filter "*.frx" -File
-        )
+    foreach ($name in $FormNames) {
+        $caseRoot = Join-Path $reportRoot $name
+        $generatedRoot = Join-Path $caseRoot "generated"
+        $exportedRoot = Join-Path $caseRoot "exported"
+        [void](New-Item -ItemType Directory -Path $generatedRoot, $exportedRoot -Force)
 
-        $canonicalFrxFiles = @(
-            Get-ChildItem -LiteralPath $CanonicalDirectory -Filter "*.frx" -File
-        )
+        $generatedForm = Join-Path $GeneratedDirectory ($name + ".frm")
+        $exportedForm = Join-Path $StagingDirectory ($name + ".frm")
+        $generatedTemplate = Join-Path $generatedRoot ($name + ".template.json")
+        $exportedTemplate = Join-Path $exportedRoot ($name + ".template.json")
 
-        $stageFrxMap = @{}
-        $canonicalFrxMap = @{}
+        [void](Compare-IguanaTexUserFormSemantics `
+            -ProjectRoot $projectRoot `
+            -FrxEditPath $FrxEditPath `
+            -OriginalFormPath $generatedForm `
+            -CandidateFormPath $exportedForm `
+            -ArtifactsDirectory (Join-Path $caseRoot "semantics") `
+            -ReportPath (Join-Path $caseRoot "semantic-report.json"))
 
-        foreach ($file in $stageFrxFiles) {
-            $stageFrxMap[$file.Name.ToLowerInvariant()] = $file
-        }
-
-        foreach ($file in $canonicalFrxFiles) {
-            $canonicalFrxMap[$file.Name.ToLowerInvariant()] = $file
-        }
-
-        $allFrxKeys = @(
-            @($stageFrxMap.Keys) + @($canonicalFrxMap.Keys) |
-            Sort-Object -Unique
-        )
-
-        foreach ($key in $allFrxKeys) {
-            $inStage = $stageFrxMap.ContainsKey($key)
-            $inCanonical = $canonicalFrxMap.ContainsKey($key)
-
-            if (-not $inStage) {
-                Write-Host "EXTRA FRX in source: $($canonicalFrxMap[$key].Name)"
-                $differenceCount++
-                continue
-            }
-
-            if (-not $inCanonical) {
-                Write-Host "MISSING FRX in source: $($stageFrxMap[$key].Name)"
-                $differenceCount++
-                continue
-            }
-
-            if (-not (Test-FilesEqual `
-                $stageFrxMap[$key].FullName `
-                $canonicalFrxMap[$key].FullName)) {
-
-                Write-Host "DIFF FRX: $($stageFrxMap[$key].Name)"
-                $differenceCount++
-            }
+        Invoke-FrxEditCommand -ExecutablePath $FrxEditPath -Arguments @(
+            "inspect", $generatedForm, "--mode", "strict", "--as-template", "--out", $generatedTemplate)
+        Invoke-FrxEditCommand -ExecutablePath $FrxEditPath -Arguments @(
+            "inspect", $exportedForm, "--mode", "strict", "--as-template", "--out", $exportedTemplate)
+        $generatedVba = [IO.Path]::ChangeExtension($generatedTemplate, ".vba")
+        $exportedVba = [IO.Path]::ChangeExtension($exportedTemplate, ".vba")
+        Assert-IguanaTexGeneratedVba `
+            -FormPath $generatedForm `
+            -CanonicalVbaPath $generatedVba
+        Assert-IguanaTexGeneratedVba `
+            -FormPath $exportedForm `
+            -CanonicalVbaPath $exportedVba
+        if (-not (Test-VbaTextEqual $generatedVba $exportedVba)) {
+            Write-Host "DIFF UserForm VBA: $name"
+            $differenceCount++
         }
     }
 
@@ -482,12 +524,16 @@ if ($PSVersionTable.PSEdition -eq "Core" -and -not $IsWindows) {
     throw "This script requires Windows PowerPoint COM automation."
 }
 
-if ($Action -ne "export" -and $UpdateFrx.Count -gt 0) {
-    throw "-UpdateFrx is valid only with the export action."
+if ($UpdateFrx.Count -gt 0) {
+    throw "-UpdateFrx was retired when UserForm JSON/VBA became canonical. Use -UpdateUserForm with the export action."
 }
 
-if ($Action -ne "verify" -and $VerifyFrx) {
-    throw "-VerifyFrx is valid only with the verify action."
+if ($VerifyFrx) {
+    throw "-VerifyFrx was retired. The verify action now compares UserForms semantically and never uses FRX byte equality."
+}
+
+if ($Action -ne "export" -and $UpdateUserForm.Count -gt 0) {
+    throw "-UpdateUserForm is valid only with the export action."
 }
 
 if ($Action -eq "verify" -and $Prune) {
@@ -496,14 +542,36 @@ if ($Action -eq "verify" -and $Prune) {
 
 $layout = Get-ProjectLayout $PSScriptRoot
 $projectRoot = $layout.ProjectRoot
+$canonicalDirectory = $layout.CanonicalDirectory
 $sourceDirectory = $layout.SourceDirectory
 $pptmResolved = $layout.PptmPath
-$frxNames = @(Normalize-UpdateFrxNames $UpdateFrx)
-
-if ($Action -in @("import", "verify")) {
-    if (-not (Test-Path -LiteralPath $sourceDirectory -PathType Container)) {
-        throw "VBA source directory not found: $sourceDirectory"
+$manifest = Assert-IguanaTexUserFormManifest -ProjectRoot $projectRoot
+$formNames = @($manifest.Forms | ForEach-Object { [string]$_.Name })
+$requestedFormNames = @(Normalize-RequestedNames $UpdateUserForm)
+$canonicalNameMap = @{}
+foreach ($name in $formNames) { $canonicalNameMap[$name.ToLowerInvariant()] = $name }
+$resolvedNames = @()
+foreach ($name in $requestedFormNames) {
+    $key = $name.ToLowerInvariant()
+    if ($key -eq "all") {
+        throw "-UpdateUserForm requires explicit form names; 'all' is intentionally not supported."
     }
+    if (-not $canonicalNameMap.ContainsKey($key)) {
+        throw "Requested UserForm is not listed in the canonical manifest: $name"
+    }
+    $resolvedNames += $canonicalNameMap[$key]
+}
+$requestedFormNames = @($resolvedNames | Select-Object -Unique)
+
+$codec = Invoke-FrxEditBuild -ProjectRoot $projectRoot -Mode Pinned
+$frxEditPath = [string]$codec.ExecutablePath
+[void](New-IguanaTexUserFormStaging `
+    -ProjectRoot $projectRoot `
+    -FrxEditPath $frxEditPath `
+    -OutputDirectory $sourceDirectory)
+
+if (-not (Test-Path -LiteralPath $sourceDirectory -PathType Container)) {
+    throw "Generated VBA source directory not found: $sourceDirectory"
 }
 
 $ppt = $null
@@ -518,14 +586,15 @@ try {
     Write-Host "Action: $Action"
     Write-Host "Root:   $projectRoot"
     Write-Host "PPTM:   $pptmResolved"
-    Write-Host "Source: $sourceDirectory"
+    Write-Host "Canonical: $canonicalDirectory"
+    Write-Host "Generated: $sourceDirectory"
 
     if ($DryRun) {
         Write-Host "Mode:   dry-run"
     }
 
-    if ($frxNames.Count -gt 0) {
-        Write-Host ("FRX:    " + ($frxNames -join ", "))
+    if ($requestedFormNames.Count -gt 0) {
+        Write-Host ("UserForms: " + ($requestedFormNames -join ", "))
     }
 
     Write-Host ""
@@ -597,14 +666,26 @@ try {
                 -Project $project `
                 -Directory $stagingDirectory
 
+            Assert-ExpectedFormSet `
+                -Directory $stagingDirectory `
+                -ExpectedNames $formNames
+
             Write-Host ""
 
-            Sync-ExportedTree `
+            Sync-ExportedTextComponents `
                 -StagingDirectory $stagingDirectory `
-                -CanonicalDirectory $sourceDirectory `
+                -CanonicalDirectory $canonicalDirectory `
                 -PruneFiles:$Prune `
-                -FrxNames $frxNames `
                 -WhatIfOnly:$DryRun
+
+            if ($requestedFormNames.Count -gt 0) {
+                [void](Export-IguanaTexCanonicalUserForms `
+                    -ProjectRoot $projectRoot `
+                    -FrxEditPath $frxEditPath `
+                    -InputDirectory $stagingDirectory `
+                    -Form $requestedFormNames `
+                    -DryRun:$DryRun)
+            }
 
             Write-Host ""
 
@@ -630,8 +711,9 @@ try {
 
             $exitCode = Verify-ExportedTree `
                 -StagingDirectory $stagingDirectory `
-                -CanonicalDirectory $sourceDirectory `
-                -IncludeFrx:$VerifyFrx
+                -GeneratedDirectory $sourceDirectory `
+                -FormNames $formNames `
+                -FrxEditPath $frxEditPath
         }
     }
 }
