@@ -4,12 +4,6 @@ Private Sub UserForm_Initialize()
     LoadSettings
     Me.Top = Application.Top + 110
     Me.Left = Application.Left + 25
-    Me.Height = 322
-    Me.Width = 256
-    TextBoxChooseColor.Top = checkboxTransp.Top
-    LabelChooseColor.Left = checkboxTransp.Left
-    TextBoxChooseColor.Left = LabelChooseColor.Left + LabelChooseColor.Width
-    LabelChooseColor.Top = TextBoxChooseColor.Top + Round(TextBoxChooseColor.Height - LabelChooseColor.Height) / 2
     ShowAcceleratorTip Me.ButtonRun
     ShowAcceleratorTip Me.ButtonCancel
     

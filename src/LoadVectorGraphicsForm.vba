@@ -9,24 +9,12 @@ End Sub
 Private Sub UserForm_Initialize()
     Me.Top = Application.Top + 110
     Me.Left = Application.Left + 25
-    Me.Height = 194
-    Me.Width = 355
-    Me.LabelInsertPath.Caption = "Insert path of .pdf/.dvi/.xdv/.ps/.eps/.svg file:"
     #If Mac Then
         ResizeUserForm Me
     #End If
     textboxScalor.Text = GetITSetting("LoadVectorFileScaling", "1")
     TextBoxCalibrationX.Text = GetITSetting("LoadVectorFileCalibrationX", "1")
     TextBoxCalibrationY.Text = GetITSetting("LoadVectorFileCalibrationY", "1")
-    ComboBoxVectorOutputType.List = Array("SVG via Docker")
-    ComboBoxVectorOutputType.ListIndex = 0
-    ComboBoxVectorOutputType.Enabled = False
-    CheckBoxCleanUp.value = False
-    CheckBoxCleanUp.Enabled = False
-    CheckBoxCleanUp.Visible = False
-    CheckBoxConvertLines.value = False
-    CheckBoxConvertLines.Enabled = False
-    CheckBoxConvertLines.Visible = False
     ShowAcceleratorTip Me.ButtonLoadFile
     ShowAcceleratorTip Me.ButtonCancel
     ShowAcceleratorTip Me.CommandButtonSave
@@ -61,14 +49,9 @@ Sub ButtonPath_Click()
 End Sub
 
 Private Sub TextBoxFile_Change()
-    Dim path As String, Ext As String
+    Dim path As String
     path = TextBoxFile.Text
-    Ext = GetExtension(path)
     ButtonLoadFile.Enabled = FileExists(path) And isInsertableVectorFile(path)
-    If Ext = "svg" Then
-        ComboBoxVectorOutputType.ListIndex = 0
-        ComboBoxVectorOutputType.Enabled = False
-    End If
 End Sub
 
 Sub ButtonLoadFile_Click()
@@ -147,5 +130,3 @@ Private Sub DoInsertVectorGraphicsFile()
     Set NewShape = convertSVG(NewShape, ScalingX, ScalingY, posX, posY)
     NewShape.Select
 End Sub
-
-

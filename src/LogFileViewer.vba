@@ -2,8 +2,6 @@ Option Explicit
 Private Sub UserForm_Initialize()
     Me.Top = Application.Top + 110
     Me.Left = Application.Left + 25
-    Me.Height = 372
-    Me.Width = 451
     ShowAcceleratorTip Me.CloseLogButton
     ShowAcceleratorTip Me.CmdButtonExternalEditor
     #If Mac Then

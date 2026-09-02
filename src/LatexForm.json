@@ -12,10 +12,10 @@
       "logicalWidthPt": 0,
       "logicalHeightPt": 0,
       "caption": "IguanaTex",
-      "clientHeight": 7050,
+      "clientHeight": 5880,
       "clientLeft": -240,
       "clientTop": -870,
-      "clientWidth": 11025,
+      "clientWidth": 7668,
       "startUpPosition": 1
     },
     "ButtonMakeDefault": {
@@ -387,7 +387,7 @@
       "widthPt": 149.98,
       "heightPt": 24.01,
       "fontPitchAndFamily": 2,
-      "visible": true,
+      "visible": false,
       "siteBitFlags": "0x00040023",
       "tabIndex": 14,
       "tabStop": true,

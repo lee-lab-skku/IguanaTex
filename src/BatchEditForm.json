@@ -1028,8 +1028,8 @@
       "type": "CheckBox"
     },
     "TextBoxChooseColor": {
-      "leftPt": 180.99,
-      "topPt": 168.01,
+      "leftPt": 110.01,
+      "topPt": 169.85,
       "widthPt": 38.01,
       "heightPt": 15.99,
       "value": "000000",
@@ -1074,8 +1074,8 @@
       "type": "TextBox"
     },
     "LabelChooseColor": {
-      "leftPt": 150.01,
-      "topPt": 170.99,
+      "leftPt": 78.01,
+      "topPt": 171.85,
       "widthPt": 32,
       "heightPt": 11.99,
       "caption": "Color: #",

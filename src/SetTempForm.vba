@@ -212,103 +212,18 @@ Private Sub UserForm_Activate()
     #End If
 End Sub
 
-Private Sub HideRetiredRendererControls()
-    Me.LabelDefaultUses.Visible = False
-    Me.LabelSetGS.Visible = False
-    Me.LabelDLgs.Visible = False
-    Me.TextBoxGS.Visible = False
-    Me.TextBoxGS.Enabled = False
-    Me.ButtonGSPath.Visible = False
-    Me.ButtonGSPath.Enabled = False
-
-    Me.LabelSetFullPath.Visible = False
-    Me.LabelDLImageMagick.Visible = False
-    Me.TextBoxIMconv.Visible = False
-    Me.TextBoxIMconv.Enabled = False
-    Me.ButtonIMPath.Visible = False
-    Me.ButtonIMPath.Enabled = False
-
-    Me.LabelLibgs.Visible = False
-    Me.TextBoxLibgs.Visible = False
-    Me.TextBoxLibgs.Enabled = False
-    Me.ButtonLibgsPath.Visible = False
-    Me.ButtonLibgsPath.Enabled = False
-
-    Me.LabelTeX2img.Visible = False
-    Me.LabelTeX2imgGithub.Visible = False
-    Me.LabelDLTeX2img.Visible = False
-    Me.TextBoxTeX2img.Visible = False
-    Me.TextBoxTeX2img.Enabled = False
-    Me.ButtonTeX2img.Visible = False
-    Me.ButtonTeX2img.Enabled = False
-
-    Me.LabelTeXExtraPath.Visible = False
-    Me.TextBoxTeXExtraPath.Visible = False
-    Me.TextBoxTeXExtraPath.Enabled = False
-
-    Me.LabelVectorX.Visible = False
-    Me.LabelVectorY.Visible = False
-    Me.TextBoxVectorScalingX.Visible = False
-    Me.TextBoxVectorScalingX.Enabled = False
-    Me.TextBoxVectorScalingY.Visible = False
-    Me.TextBoxVectorScalingY.Enabled = False
-End Sub
-
 Private Sub SetUserFormLayout()
     Me.Top = Application.Top + 110
     Me.Left = Application.Left + 25
-    Me.Height = 480
-    Me.Width = 322
-    Me.CheckBoxAltText.Top = Me.CheckBoxLatexmk.Top + 24
 
     #If Mac Then
-        Me.ComboBoxPictureOutputType.Top = Me.CheckBoxLatexmk.Top
-        Me.LabelPictureOutputCreationMode.Top = Me.ComboBoxPictureOutputType.Top + 2
-        Me.ComboBoxVectorOutputType.Top = Me.CheckBoxAltText.Top
-        Me.LabelVectorOutputCreationMode.Top = Me.ComboBoxVectorOutputType.Top + 2
-    #Else
-        Me.ComboBoxVectorOutputType.Top = Me.CheckBoxAltText.Top
-        Me.LabelVectorOutputCreationMode.Top = Me.ComboBoxVectorOutputType.Top + 2
-        Me.LabelPictureOutputCreationMode.Visible = False
-        Me.ComboBoxPictureOutputType.Visible = False
-    #End If
-
-    HideRetiredRendererControls
-    Me.LabelVectorOutputCreationMode.ControlTipText = "Generated vector output is always SVG"
-    Me.CheckBoxKeepTempFiles.ControlTipText = _
-        "Keep host-side Docker job files; container-only intermediate files are removed"
-
-    Me.LabelMagicRescalingFactors.Caption = "Picture scaling factors"
-    Me.LabelMagicRescalingFactors.Top = Me.LabelVectorOutputCreationMode.Top + 22
-    Me.LabelBitmapX.Top = Me.LabelMagicRescalingFactors.Top + 16
-    Me.LabelBitmapY.Top = Me.LabelBitmapX.Top
-    Me.TextBoxBitmapScalingX.Top = Me.LabelBitmapX.Top - 2
-    Me.TextBoxBitmapScalingY.Top = Me.TextBoxBitmapScalingX.Top
-
-    Me.LabelEditor.Top = Me.LabelBitmapX.Top + 24
-    Me.LabelDLtexstudio.Top = Me.LabelEditor.Top
-    Me.CheckBoxExternalEditor.Top = Me.LabelEditor.Top - 2
-    Me.TextBoxExternalEditor.Top = Me.LabelEditor.Top + 12
-    Me.ButtonEditorPath.Top = Me.TextBoxExternalEditor.Top - 1
-
-    Me.LabelTeXExePath.Top = Me.LabelEditor.Top + 30
-    Me.LabelTeXExePath.Caption = "Docker image"
-    Me.TextBoxTeXExePath.Top = Me.TextBoxExternalEditor.Top + 30
-    Me.TextBoxTeXExePath.ControlTipText = "Container image used for all generated outputs"
-    Me.ButtonTeXExePath.Top = Me.TextBoxTeXExePath.Top - 1
-    Me.ButtonTeXExePath.Enabled = False
-    Me.ButtonTeXExePath.Visible = False
-
-    Me.LabelLaTeXiT.Top = Me.LabelTeXExePath.Top + 30
-    Me.TextBoxLaTeXiT.Top = Me.TextBoxTeXExePath.Top + 30
-    Me.ButtonLaTeXiTPath.Top = Me.TextBoxLaTeXiT.Top - 1
-
-    #If Mac Then
-        Me.LabelWindowSize.Top = Me.TextBoxLaTeXiT.Top + 26
-        Me.LabelWindowHeight.Top = Me.LabelWindowSize.Top
-        Me.LabelWindowWidth.Top = Me.LabelWindowHeight.Top
-        Me.TextBoxWindowHeight.Top = Me.LabelWindowHeight.Top - 2
-        Me.TextBoxWindowWidth.Top = Me.TextBoxWindowHeight.Top
+        Me.LabelPictureOutputCreationMode.Visible = True
+        Me.ComboBoxPictureOutputType.Visible = True
+        Me.LabelWindowSize.Visible = True
+        Me.LabelWindowHeight.Visible = True
+        Me.LabelWindowWidth.Visible = True
+        Me.TextBoxWindowHeight.Visible = True
+        Me.TextBoxWindowWidth.Visible = True
         Me.LabelFontSize.Caption = "Font size="
         Me.LabelFontSize.Left = 220
         Me.LabelFontSize.Width = 52
@@ -322,18 +237,6 @@ Private Sub SetUserFormLayout()
         Me.ButtonReset.Top = Me.ButtonCancelTemp.Top
         Me.Height = Me.ButtonCancelTemp.Top + 58
         ResizeUserForm Me
-    #Else
-        Me.LabelWindowSize.Visible = False
-        Me.LabelWindowHeight.Visible = False
-        Me.LabelWindowWidth.Visible = False
-        Me.TextBoxWindowHeight.Visible = False
-        Me.TextBoxWindowWidth.Visible = False
-        Me.ButtonExportToXML.Top = Me.TextBoxLaTeXiT.Top + 26
-        Me.ButtonImportFromXML.Top = Me.ButtonExportToXML.Top
-        Me.ButtonCancelTemp.Top = Me.ButtonExportToXML.Top + 34
-        Me.ButtonSetTemp.Top = Me.ButtonCancelTemp.Top
-        Me.ButtonReset.Top = Me.ButtonCancelTemp.Top
-        Me.Height = Me.ButtonCancelTemp.Top + 58
     #End If
 
     ShowAcceleratorTip Me.ButtonSetTemp
@@ -386,7 +289,6 @@ Private Sub ReadSavedSettings()
         VectorOutputTypeIndex = 0
     End If
     ComboBoxVectorOutputType.ListIndex = VectorOutputTypeIndex
-    ComboBoxVectorOutputType.ControlTipText = "SVG via DVI in Docker is recommended due to issues with PDF conversion"
     ComboBoxPictureOutputType.List = GetPictureOutputTypeDisplayList()
     Dim PictureOutputTypeIndex As Long
     PictureOutputTypeIndex = CLng(val(CStr(GetITSetting("PictureOutputTypeIdx", 0))))

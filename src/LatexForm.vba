@@ -1131,8 +1131,6 @@ Private Sub UserForm_Initialize()
     ' Remark: if used with the Manual placement option, it would place the window to the left, under the ribbon.
     Me.Top = Application.Top + 110
     Me.Left = Application.Left + 25
-    Me.Height = 320
-    Me.Width = 385
     #If Mac Then
         ResizeUserForm Me
     #End If
@@ -1147,13 +1145,6 @@ Private Sub UserForm_Initialize()
     ShowAcceleratorTip Me.MultiPage1.Pages(2)
     
         
-    LatexForm.textboxSize.Visible = True
-    LatexForm.Label2.Visible = True
-    LatexForm.Label3.Visible = True
-
-    FrameProcess.Visible = False
-    
-    
 End Sub
 
 Public Function isFormModeless() As Boolean
@@ -1599,4 +1590,3 @@ Private Sub Userform_QueryClose(Cancel As Integer, CloseMode As Integer)
 End Sub
 
 #End If
-

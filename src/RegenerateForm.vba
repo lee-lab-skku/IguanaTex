@@ -3,8 +3,6 @@ Option Explicit
 Private Sub UserForm_Initialize()
     Me.Top = Application.Top + 110
     Me.Left = Application.Left + 25
-    Me.Height = 120
-    Me.Width = 210
     #If Mac Then
         ResizeUserForm Me
     #End If

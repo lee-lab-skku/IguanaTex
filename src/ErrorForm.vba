@@ -5,21 +5,12 @@ Private Sub UserForm_Initialize()
     Me.Left = Application.Left + 25
     ShowAcceleratorTip Me.CopyCommandButton
     ShowAcceleratorTip Me.CloseErrorButton
-    
-'    Me.Height = 180
-'    Me.Width = 344
-'    #If Mac Then
-'        ResizeUserForm Me
-'    #End If
 End Sub
 
 Private Sub UserForm_Activate()
     Dim spacing As Long
     spacing = 8
 
-    Me.Height = 180
-    Me.Width = 344
-    
     Dim LabelCommand As String
     Dim ErrorMessage As String
     LabelCommand = Me.LabelCommand.Caption

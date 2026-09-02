@@ -2,8 +2,6 @@ Option Explicit
 Private Sub UserForm_Initialize()
     Me.Top = Application.Top + 110
     Me.Left = Application.Left + 25
-    Me.Height = 158
-    Me.Width = 270
     ShowAcceleratorTip Me.CmdButtonGenerate
     ShowAcceleratorTip Me.CmdButtonReload
     ShowAcceleratorTip Me.CmdButtonCancel
