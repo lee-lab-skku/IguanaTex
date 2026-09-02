@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "forms": [
+    {
+      "name": "AboutBox",
+      "template": "src/AboutBox.json",
+      "vba": "src/AboutBox.vba"
+    },
+    {
+      "name": "BatchEditForm",
+      "template": "src/BatchEditForm.json",
+      "vba": "src/BatchEditForm.vba"
+    },
+    {
+      "name": "ErrorForm",
+      "template": "src/ErrorForm.json",
+      "vba": "src/ErrorForm.vba"
+    },
+    {
+      "name": "ExternalEditorForm",
+      "template": "src/ExternalEditorForm.json",
+      "vba": "src/ExternalEditorForm.vba"
+    },
+    {
+      "name": "LatexForm",
+      "template": "src/LatexForm.json",
+      "vba": "src/LatexForm.vba"
+    },
+    {
+      "name": "LoadVectorGraphicsForm",
+      "template": "src/LoadVectorGraphicsForm.json",
+      "vba": "src/LoadVectorGraphicsForm.vba"
+    },
+    {
+      "name": "LogFileViewer",
+      "template": "src/LogFileViewer.json",
+      "vba": "src/LogFileViewer.vba"
+    },
+    {
+      "name": "RegenerateForm",
+      "template": "src/RegenerateForm.json",
+      "vba": "src/RegenerateForm.vba"
+    },
+    {
+      "name": "SetTempForm",
+      "template": "src/SetTempForm.json",
+      "vba": "src/SetTempForm.vba"
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+[submodule "tools/frx-edit"]
+	path = tools/frx-edit
+	url = https://github.com/mirinae3145/frx-edit.git
