@@ -17,22 +17,10 @@ Public Type DockerRenderRequest
     UseDvi As Boolean
     UsePdf As Boolean
     UseVector As Boolean
-    VectorOutputType As String
     PictureOutputType As String
     OutputDpi As Long
     TimeoutSeconds As Long
 End Type
-
-Public Function IsDockerRenderPath(ByVal UseVector As Boolean, _
-                                   ByVal VectorOutputType As String, _
-                                   ByVal PictureOutputType As String) As Boolean
-    If UseVector Then
-        IsDockerRenderPath = (VectorOutputType = "dvisvgm" Or _
-                              VectorOutputType = "dvisvgmpdf")
-    Else
-        IsDockerRenderPath = (PictureOutputType = "PNG")
-    End If
-End Function
 
 Public Function ExecuteDockerRenderJob(ByRef Request As DockerRenderRequest, _
                                        ByVal TempPath As String, _
@@ -43,6 +31,69 @@ Public Function ExecuteDockerRenderJob(ByRef Request As DockerRenderRequest, _
                                        ByRef OutputType As String, _
                                        ByRef RunCommand As String, _
                                        ByRef FailureStage As String) As Long
+    On Error GoTo BuildError
+    Dim JobText As String
+    Dim StageCount As Long
+    JobText = BuildDockerJob(Request, FinalFilename, OutputType, StageCount)
+
+    ExecuteDockerRenderJob = ExecuteDockerPayloadJob(JobText, StageCount, _
+        TempPath, TempPath & Request.FilePrefix & ".tex", _
+        Request.FilePrefix & ".tex", TempPath, Request.FilePrefix, _
+        Request.FilePrefix, debugMode, WaitTime, PreserveWorkspace, _
+        FinalFilename, RunCommand, FailureStage)
+    Exit Function
+
+BuildError:
+    ExecuteDockerRenderJob = RecordDockerBuildError(TempPath, Request.FilePrefix, _
+        "build Docker render job", Err.Number, Err.Source, Err.Description, FailureStage)
+End Function
+
+Public Function ExecuteDockerVectorConversionJob(ByVal InputPath As String, _
+                                                  ByVal TempPath As String, _
+                                                  ByVal debugMode As Boolean, _
+                                                  ByVal WaitTime As Long, _
+                                                  ByVal PreserveWorkspace As Boolean, _
+                                                  ByRef FinalFilename As String, _
+                                                  ByRef RunCommand As String, _
+                                                  ByRef FailureStage As String) As Long
+    On Error GoTo BuildError
+
+    Dim InputExtension As String
+    Dim InputFilename As String
+    Dim JobText As String
+    Dim StageCount As Long
+    InputExtension = GetExtension(InputPath)
+    InputFilename = "vector-input." & InputExtension
+    FinalFilename = DefaultFilePrefix & "_vector.svg"
+    JobText = BuildDockerVectorConversionJob(InputFilename, InputExtension, _
+        FinalFilename, CLng(val(GetITSetting("TimeOutTime", "20"))), StageCount)
+
+    ExecuteDockerVectorConversionJob = ExecuteDockerPayloadJob(JobText, StageCount, _
+        TempPath, InputPath, InputFilename, vbNullString, vbNullString, _
+        DefaultFilePrefix & "_vector", debugMode, _
+        WaitTime, PreserveWorkspace, FinalFilename, RunCommand, FailureStage)
+    Exit Function
+
+BuildError:
+    ExecuteDockerVectorConversionJob = RecordDockerBuildError(TempPath, _
+        DefaultFilePrefix & "_vector", "build Docker vector conversion job", _
+        Err.Number, Err.Source, Err.Description, FailureStage)
+End Function
+
+Private Function ExecuteDockerPayloadJob(ByVal JobText As String, _
+                                         ByVal StageCount As Long, _
+                                         ByVal TempPath As String, _
+                                         ByVal SourcePath As String, _
+                                         ByVal SourceArchiveName As String, _
+                                         ByVal AuxiliarySourcePath As String, _
+                                         ByVal AuxiliaryFilePrefix As String, _
+                                         ByVal JobFilePrefix As String, _
+                                         ByVal debugMode As Boolean, _
+                                         ByVal WaitTime As Long, _
+                                         ByVal PreserveWorkspace As Boolean, _
+                                         ByVal FinalFilename As String, _
+                                         ByRef RunCommand As String, _
+                                         ByRef FailureStage As String) As Long
     On Error GoTo HostError
 
     RunCommand = vbNullString
@@ -52,12 +103,7 @@ Public Function ExecuteDockerRenderJob(ByRef Request As DockerRenderRequest, _
     Dim HostPath As String
     Dim DockerWasExecuted As Boolean
     Dim RootLogPath As String
-    RootLogPath = TempPath & Request.FilePrefix & ".log"
-
-    HostOperation = "build Docker render job"
-    Dim JobText As String
-    Dim StageCount As Long
-    JobText = BuildDockerJob(Request, FinalFilename, OutputType, StageCount)
+    RootLogPath = TempPath & JobFilePrefix & ".log"
 
     Dim WorkspacePath As String
     Dim PayloadPath As String
@@ -68,10 +114,10 @@ Public Function ExecuteDockerRenderJob(ByRef Request As DockerRenderRequest, _
     HostOperation = "create private render workspace"
     HostPath = TempPath
     WorkspacePath = CreateDockerWorkspace(TempPath)
-    PayloadPath = WorkspacePath & Request.FilePrefix & DOCKER_PAYLOAD_SUFFIX
-    ArtifactPath = WorkspacePath & Request.FilePrefix & DOCKER_ARTIFACT_SUFFIX
+    PayloadPath = WorkspacePath & JobFilePrefix & DOCKER_PAYLOAD_SUFFIX
+    ArtifactPath = WorkspacePath & JobFilePrefix & DOCKER_ARTIFACT_SUFFIX
     FinalPath = TempPath & FinalFilename
-    WorkspaceLogPath = WorkspacePath & Request.FilePrefix & ".log"
+    WorkspaceLogPath = WorkspacePath & JobFilePrefix & ".log"
 
     DeleteDockerFile FinalPath
 
@@ -79,12 +125,14 @@ Public Function ExecuteDockerRenderJob(ByRef Request As DockerRenderRequest, _
     HostPath = WorkspacePath & DOCKER_JOB_FILENAME
     WriteToFile WorkspacePath, "job", ".sh", JobText
 
-    HostOperation = "copy generated LaTeX source"
-    HostPath = TempPath & Request.FilePrefix & ".tex"
-    FileCopy HostPath, WorkspacePath & Request.FilePrefix & ".tex"
+    HostOperation = "copy Docker job input"
+    HostPath = SourcePath
+    FileCopy HostPath, WorkspacePath & SourceArchiveName
 
-    StageDockerAuxiliaryFiles TempPath, WorkspacePath, Request.FilePrefix, _
-        HostOperation, HostPath
+    If AuxiliarySourcePath <> vbNullString Then
+        StageDockerAuxiliaryFiles AuxiliarySourcePath, WorkspacePath, _
+            AuxiliaryFilePrefix, HostOperation, HostPath
+    End If
 
     WriteDockerPayload PayloadPath, WorkspacePath, HostOperation, HostPath
 
@@ -102,23 +150,23 @@ Public Function ExecuteDockerRenderJob(ByRef Request As DockerRenderRequest, _
     HostOperation = "execute Docker render command"
     HostPath = WorkspacePath
     DockerWasExecuted = True
-    ExecuteDockerRenderJob = ExecuteRedirected(DockerCommand, WorkspacePath, _
+    ExecuteDockerPayloadJob = ExecuteRedirected(DockerCommand, WorkspacePath, _
         PayloadPath, ArtifactPath, WorkspaceLogPath, False, OverallWaitTime)
 
     FailureStage = ReadDockerFailureStage(WorkspaceLogPath)
     PublishDockerLog WorkspaceLogPath, RootLogPath
-    If ExecuteDockerRenderJob <> 0 Then Exit Function
+    If ExecuteDockerPayloadJob <> 0 Then Exit Function
 
     HostOperation = "validate Docker output artifact"
     HostPath = ArtifactPath
     If Not FileExists(ArtifactPath) Then
         FailureStage = "artifact"
-        ExecuteDockerRenderJob = 1
+        ExecuteDockerPayloadJob = 1
         Exit Function
     End If
     If FileLen(ArtifactPath) = 0 Then
         FailureStage = "artifact"
-        ExecuteDockerRenderJob = 1
+        ExecuteDockerPayloadJob = 1
         Exit Function
     End If
 
@@ -138,7 +186,7 @@ HostError:
     HostErrorDescription = Err.Description
 
     FailureStage = "host-payload"
-    ExecuteDockerRenderJob = 1
+    ExecuteDockerPayloadJob = 1
     HostLogText = "IguanaTex could not prepare or complete the host side of the Docker render job." & vbLf & _
         "Failure stage: host-payload" & vbLf & _
         "Host operation: " & HostOperation & vbLf
@@ -156,7 +204,28 @@ HostError:
     End If
 
     On Error Resume Next
-    WriteToFile TempPath, Request.FilePrefix, ".log", HostLogText
+    WriteToFile TempPath, JobFilePrefix, ".log", HostLogText
+    On Error GoTo 0
+End Function
+
+Private Function RecordDockerBuildError(ByVal TempPath As String, _
+                                        ByVal JobFilePrefix As String, _
+                                        ByVal HostOperation As String, _
+                                        ByVal ErrorNumber As Long, _
+                                        ByVal ErrorSource As String, _
+                                        ByVal ErrorDescription As String, _
+                                        ByRef FailureStage As String) As Long
+    FailureStage = "host-payload"
+    RecordDockerBuildError = 1
+    On Error Resume Next
+    WriteToFile TempPath, JobFilePrefix, ".log", _
+        "IguanaTex could not prepare the host side of the Docker job." & vbLf & _
+        "Failure stage: host-payload" & vbLf & _
+        "Host operation: " & HostOperation & vbLf & _
+        "VBA error number: " & CStr(ErrorNumber) & vbLf & _
+        "VBA error source: " & ErrorSource & vbLf & _
+        "VBA error description: " & ErrorDescription & vbLf & _
+        "Docker command was not executed."
     On Error GoTo 0
 End Function
 
@@ -177,6 +246,13 @@ Public Function DockerRenderErrorMessage(ByVal FailureStage As String, _
             DockerRenderErrorMessage = "Error while using dvipdfmx inside the Docker render job."
         Case "dvisvgm"
             DockerRenderErrorMessage = "Error while using dvisvgm to create SVG inside the Docker render job."
+        Case "pdf-to-svg"
+            DockerRenderErrorMessage = "Error while converting PDF to SVG inside the Docker render job. " & _
+                "The image must provide dvisvgm or the pdftocairo fallback."
+        Case "pdfcrop"
+            DockerRenderErrorMessage = "Error while cropping PDF inside the Docker render job."
+        Case "ps2pdf"
+            DockerRenderErrorMessage = "Error while converting PostScript to PDF inside the Docker render job."
         Case "bbox"
             DockerRenderErrorMessage = "Error while using Ghostscript to compute the bounding box inside the Docker render job."
         Case "ghostscript-png"
@@ -189,8 +265,8 @@ Public Function DockerRenderErrorMessage(ByVal FailureStage As String, _
         Case "artifact"
             DockerRenderErrorMessage = "The Docker render job completed without returning a final artifact."
         Case "host-payload"
-            DockerRenderErrorMessage = "IguanaTex could not prepare the Docker render payload. " & _
-                "The Docker command was not executed; the temporary log contains the host operation, path, and VBA error."
+            DockerRenderErrorMessage = "IguanaTex could not prepare or finish the host side of the Docker render job. " & _
+                "The temporary log records whether Docker started, plus the host operation, path, and VBA error."
         Case Else
             DockerRenderErrorMessage = "The Docker render job failed before producing an artifact. " & _
                 "Make sure Docker is running and image " & GetDockerImageReference() & " is available locally."
@@ -209,30 +285,8 @@ Private Function BuildDockerJob(ByRef Request As DockerRenderRequest, _
     LF = vbLf
     InputFilename = Request.FilePrefix & ".tex"
 
-    JobText = "#!/bin/sh" & LF & _
-        "set -u" & LF & _
-        "IGUANATEX_TIMEOUT=" & DockerShellQuote(CStr(Request.TimeoutSeconds)) & LF & _
-        "IGUANATEX_LATEX_LOG=" & DockerShellQuote(Request.FilePrefix & ".log") & LF & _
-        "run_stage() {" & LF & _
-        "  iguanatex_stage=$1" & LF & _
-        "  shift" & LF & _
-        "  printf '%s\n' ""IGUANATEX_STAGE:${iguanatex_stage}"" >&2" & LF & _
-        "  timeout ""$IGUANATEX_TIMEOUT"" ""$@"" >&2" & LF & _
-        "  iguanatex_status=$?" & LF & _
-        "  if [ ""$iguanatex_status"" -ne 0 ]; then" & LF & _
-        "    if [ ""$iguanatex_stage"" = latex ] && [ -f ""$IGUANATEX_LATEX_LOG"" ]; then" & LF & _
-        "      cat ""$IGUANATEX_LATEX_LOG"" >&2" & LF & _
-        "    fi" & LF & _
-        "    printf '%s\n' ""IGUANATEX_ERROR:${iguanatex_stage}:${iguanatex_status}"" >&2" & LF & _
-        "    exit ""$iguanatex_status""" & LF & _
-        "  fi" & LF & _
-        "}" & LF & _
-        "require_file() {" & LF & _
-        "  if [ ! -s ""$2"" ]; then" & LF & _
-        "    printf '%s\n' ""IGUANATEX_ERROR:missing-output:$1:$2"" >&2" & LF & _
-        "    exit 66" & LF & _
-        "  fi" & LF & _
-        "}" & LF
+    JobText = BuildDockerJobPreamble(Request.TimeoutSeconds, _
+        Request.FilePrefix & ".log")
 
     If Request.UseDvi Then
         If Request.LatexCommand = "xelatex" Or Request.LatexCommand = "tectonic" Then
@@ -279,19 +333,33 @@ Private Function BuildDockerJob(ByRef Request As DockerRenderRequest, _
             DockerShellQuote(Request.FilePrefix & CurrentExtension) & LF
     End If
 
+    If Request.UsePdf And CurrentType <> "PDF" Then
+        AppendDockerStage JobText, StageCount, "dvipdfmx", _
+            "dvipdfmx -o " & DockerShellQuote(Request.FilePrefix & ".pdf") & " " & _
+            DockerShellQuote(Request.FilePrefix & CurrentExtension)
+        JobText = JobText & "require_file dvipdfmx " & _
+            DockerShellQuote(Request.FilePrefix & ".pdf") & LF
+        CurrentType = "PDF"
+        CurrentExtension = ".pdf"
+    End If
+
     If Request.UseVector Then
-        Dim DvisvgmOptions As String
-        If CurrentType = "PDF" Then
-            DvisvgmOptions = "--pdf"
-        Else
-            DvisvgmOptions = "--no-fonts"
-        End If
         FinalFilename = Request.FilePrefix & ".svg"
         OutputType = "SVG"
-        AppendDockerStage JobText, StageCount, "dvisvgm", _
-            "dvisvgm " & DvisvgmOptions & " -o " & DockerShellQuote(FinalFilename) & _
-            " " & DockerShellQuote(Request.FilePrefix & CurrentExtension)
-        JobText = JobText & "require_file dvisvgm " & DockerShellQuote(FinalFilename) & LF
+        If CurrentType = "PDF" Then
+            AppendDockerPdfToSvgStage JobText, StageCount, _
+                Request.FilePrefix & CurrentExtension, FinalFilename
+        Else
+            AppendDockerStage JobText, StageCount, "dvisvgm", _
+                "dvisvgm --no-fonts -o " & DockerShellQuote(FinalFilename) & _
+                " " & DockerShellQuote(Request.FilePrefix & CurrentExtension)
+        End If
+        JobText = JobText & "require_file svg " & DockerShellQuote(FinalFilename) & LF
+    ElseIf Request.PictureOutputType = "PDF" Then
+        FinalFilename = Request.FilePrefix & "_tmp.pdf"
+        OutputType = "PDF"
+        JobText = JobText & BuildPdfToPdfJob(Request.FilePrefix & ".pdf", _
+            FinalFilename, StageCount)
     ElseIf CurrentType = "PDF" Then
         FinalFilename = Request.FilePrefix & ".png"
         OutputType = "PNG"
@@ -303,13 +371,112 @@ Private Function BuildDockerJob(ByRef Request As DockerRenderRequest, _
         AppendDockerStage JobText, StageCount, "dvipng", _
             "dvipng -q -D " & CStr(Request.OutputDpi) & _
             " -T tight -bg Transparent -o " & DockerShellQuote(FinalFilename) & _
-            " " & DockerShellQuote(Request.FilePrefix & ".dvi"), "  "
+            " " & DockerShellQuote(Request.FilePrefix & CurrentExtension), "  "
         JobText = JobText & "fi" & LF & _
             "require_file dvipng " & DockerShellQuote(FinalFilename) & LF
     End If
 
     JobText = JobText & "cat " & DockerShellQuote(FinalFilename)
     BuildDockerJob = JobText & LF
+End Function
+
+Private Function BuildDockerJobPreamble(ByVal TimeoutSeconds As Long, _
+                                        ByVal LatexLogFilename As String) As String
+    Dim LF As String
+    LF = vbLf
+    BuildDockerJobPreamble = "#!/bin/sh" & LF & _
+        "set -u" & LF & _
+        "IGUANATEX_TIMEOUT=" & DockerShellQuote(CStr(TimeoutSeconds)) & LF & _
+        "IGUANATEX_LATEX_LOG=" & DockerShellQuote(LatexLogFilename) & LF & _
+        "run_stage() {" & LF & _
+        "  iguanatex_stage=$1" & LF & _
+        "  shift" & LF & _
+        "  printf '%s\n' ""IGUANATEX_STAGE:${iguanatex_stage}"" >&2" & LF & _
+        "  timeout ""$IGUANATEX_TIMEOUT"" ""$@"" >&2" & LF & _
+        "  iguanatex_status=$?" & LF & _
+        "  if [ ""$iguanatex_status"" -ne 0 ]; then" & LF & _
+        "    if [ ""$iguanatex_stage"" = latex ] && [ -f ""$IGUANATEX_LATEX_LOG"" ]; then" & LF & _
+        "      cat ""$IGUANATEX_LATEX_LOG"" >&2" & LF & _
+        "    fi" & LF & _
+        "    printf '%s\n' ""IGUANATEX_ERROR:${iguanatex_stage}:${iguanatex_status}"" >&2" & LF & _
+        "    exit ""$iguanatex_status""" & LF & _
+        "  fi" & LF & _
+        "}" & LF & _
+        "require_file() {" & LF & _
+        "  if [ ! -s ""$2"" ]; then" & LF & _
+        "    printf '%s\n' ""IGUANATEX_ERROR:missing-output:$1:$2"" >&2" & LF & _
+        "    exit 66" & LF & _
+        "  fi" & LF & _
+        "}" & LF
+End Function
+
+Private Function BuildDockerVectorConversionJob(ByVal InputFilename As String, _
+                                                ByVal InputExtension As String, _
+                                                ByVal FinalFilename As String, _
+                                                ByVal TimeoutSeconds As Long, _
+                                                ByRef StageCount As Long) As String
+    Dim JobText As String
+    Dim DvisvgmOptions As String
+    Dim DvisvgmInput As String
+    Dim UsePdfToSvg As Boolean
+    JobText = BuildDockerJobPreamble(TimeoutSeconds, "vector-conversion.log")
+    DvisvgmInput = InputFilename
+
+    Select Case InputExtension
+        Case "pdf"
+            UsePdfToSvg = True
+        Case "ps"
+            DvisvgmInput = "vector-input.pdf"
+            AppendDockerStage JobText, StageCount, "ps2pdf", _
+                "ps2pdf " & DockerShellQuote(InputFilename) & " " & _
+                DockerShellQuote(DvisvgmInput)
+            JobText = JobText & "require_file ps2pdf " & _
+                DockerShellQuote(DvisvgmInput) & vbLf
+            UsePdfToSvg = True
+        Case "eps"
+            DvisvgmOptions = "--eps"
+        Case "dvi", "xdv"
+            DvisvgmOptions = "--no-fonts"
+        Case Else
+            Err.Raise vbObjectError + 2107, "DockerRender", _
+                "Unsupported Docker vector input extension: " & InputExtension
+    End Select
+
+    If UsePdfToSvg Then
+        AppendDockerPdfToSvgStage JobText, StageCount, DvisvgmInput, FinalFilename
+    Else
+        AppendDockerStage JobText, StageCount, "dvisvgm", _
+            "dvisvgm " & DvisvgmOptions & " -o " & DockerShellQuote(FinalFilename) & _
+            " " & DockerShellQuote(DvisvgmInput)
+    End If
+    JobText = JobText & "require_file svg " & DockerShellQuote(FinalFilename) & vbLf & _
+        "cat " & DockerShellQuote(FinalFilename) & vbLf
+    BuildDockerVectorConversionJob = JobText
+End Function
+
+Private Sub AppendDockerPdfToSvgStage(ByRef JobText As String, _
+                                      ByRef StageCount As Long, _
+                                      ByVal PdfFilename As String, _
+                                      ByVal SvgFilename As String)
+    Dim ConversionCommand As String
+    ConversionCommand = "dvisvgm --pdf -o " & DockerShellQuote(SvgFilename) & _
+        " " & DockerShellQuote(PdfFilename) & _
+        " || { rm -f " & DockerShellQuote(SvgFilename) & _
+        "; exec pdftocairo -svg " & DockerShellQuote(PdfFilename) & _
+        " " & DockerShellQuote(SvgFilename) & "; }"
+    AppendDockerStage JobText, StageCount, "pdf-to-svg", _
+        "sh -c " & DockerShellQuote(ConversionCommand)
+End Sub
+
+Private Function BuildPdfToPdfJob(ByVal PdfFilename As String, _
+                                  ByVal FinalPdf As String, _
+                                  ByRef StageCount As Long) As String
+    Dim JobText As String
+    AppendDockerStage JobText, StageCount, "pdfcrop", _
+        "pdfcrop --margins 0.1 " & DockerShellQuote(PdfFilename) & _
+        " " & DockerShellQuote(FinalPdf)
+    BuildPdfToPdfJob = JobText & "require_file pdfcrop " & _
+        DockerShellQuote(FinalPdf) & vbLf
 End Function
 
 Private Function BuildPdfToPngJob(ByRef Request As DockerRenderRequest, _

@@ -72,8 +72,8 @@ Function TryEditLatexEquation() As Boolean
         DeDuplicateShapeNamesInSlide ActiveWindow.View.Slide.SlideIndex
         If Sel.ShapeRange.count = 1 Then ' if not 1, then multiple objects are selected
             If Sel.ShapeRange.Type = msoGroup Then
-                ' Group case: either 1 object within a group, or 1 group corresponding to an EMF display
-                If Sel.HasChildShapeRange = False Then ' Maybe an EMF display
+                ' Group case: either one object within a group, or one grouped vector display
+                If Sel.HasChildShapeRange = False Then ' Maybe a grouped display
                     Set oldshape = Sel.ShapeRange(1)
                     TryEditLatexEquation = TryProcessShape(oldshape)
                     Exit Function
@@ -86,8 +86,10 @@ Function TryEditLatexEquation() As Boolean
             Else
                 ' Non-group case: only a single object can be selected
                 Set oldshape = Sel.ShapeRange(1)
-                If oldshape.Tags.item("EMFchild") <> vbNullString Then
-                    TryEditLatexEquation = False ' we should not have an EMF child object by itself
+                If oldshape.Tags.item("VECTORCHILD") <> vbNullString Or _
+                   oldshape.Tags.item("EMFchild") <> vbNullString Then
+                    ' A generated vector child should not be edited by itself.
+                    TryEditLatexEquation = False
                 Else
                     TryEditLatexEquation = TryProcessShape(oldshape)
                 End If
