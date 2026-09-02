@@ -9,10 +9,16 @@ End-user installation and usage remain in [README.md](README.md).
 The Git-tracked files are the source of truth. A `.pptm` or `.ppam` is a
 generated or synchronization container, never the canonical implementation.
 
-- VBA source lives in `src/`.
+- Standard-module and class source lives in `src/*.bas` and `src/*.cls`.
+- Each UserForm is represented by `src/<FormName>.json`, the adjacent
+  `src/<FormName>.vba`, and any assets referenced by relative `file://` URIs in
+  that JSON under `src/<FormName>/`. `office/forms/manifest.json` is the closed
+  list of canonical forms.
 - VBProject metadata and explicit reference declarations live in
   `office/project/`.
 - RibbonX lives in `office/ribbon/`.
+- Native `.frm/.frx` pairs are generated with the pinned FrxEdit submodule into
+  `.build/vba-source/`; they are never edited or committed as source.
 - Generated Office artifacts belong under the ignored `.build/` directory or
   another explicitly selected disposable output directory.
 
@@ -33,22 +39,48 @@ this fork. They do not intentionally change IguanaTeX application behavior.
 | `d3991fa` | Added canonical project metadata, reference declarations, and both RibbonX versions under `office/`. | Office state that cannot be represented by `.bas`, `.cls`, or `.frm` files is now tracked explicitly. |
 | `feb21f9` | Added the fresh PPTM/PPAM build pipeline, isolated VBE compile validation, package/Ribbon validation, PowerPoint round trips, and shared VBA import helpers. | A validated macro-enabled Office artifact can be produced without using any PPTM as build input. |
 | `ec95079` | Moved the existing-container sync lookup from the repository root to `.build/office/`. | Build and sync now use the same ignored artifact directory; root-level PPTM files are not sync inputs. |
+| `7a2b8de` | Last commit before the UserForm source transition. | This is the previous binary-canonical baseline to consult when migration history is required. |
+| `3bbfb96` (2026-09-02) | Replaced canonical `.frm/.frx` pairs with JSON templates, separate VBA, and extracted assets. | This is the exact point where authority moved to `src/*.json`, matching `src/*.vba`, and referenced assets. Native form pairs are generated artifacts from this commit onward. |
 
 When changing this infrastructure, preserve the separation between the sync
 workflow and the fresh-build workflow. They share low-level import helpers but
 have different user-facing purposes.
 
+## Repository responsibilities and dependency direction
+
+FrxEdit and IguanaTeX deliberately have different responsibilities:
+
+- `frx-edit` owns the generic MS-OFORMS reader/writer, JSON edit contract,
+  structural validation, binary invariants, and minimal generic regression
+  fixtures. It must not acquire IguanaTeX-specific workarounds or dependencies.
+- IguanaTeX consumes that codec and owns the nine-form canonical corpus, VBA and
+  image assets, the full-corpus round-trip matrix, Office packaging, and native
+  PowerPoint acceptance.
+
+The dependency is one-way: IguanaTeX depends on FrxEdit through
+`tools/frx-edit`; FrxEdit does not depend on IguanaTeX. The submodule gitlink is
+the codec version lock, the publish script is the build-contract lock, and the
+generated provenance record is execution evidence. Do not introduce a second
+lock file containing the same revision.
+
 ## Repository map
 
 | Path | Role |
 | --- | --- |
-| `src/` | Canonical VBA standard modules (`.bas`), class modules (`.cls`), UserForms (`.frm`), and opaque UserForm binaries (`.frx`). |
+| `src/` | Canonical standard modules (`.bas`), classes (`.cls`), UserForm templates (`.json`), matching form code (`.vba`), and JSON-referenced assets. |
+| `office/forms/manifest.json` | Versioned, explicit list of the nine canonical UserForms and their JSON/VBA paths. |
 | `office/project/project.json` | Canonical VBProject name, description, protection state, and conditional-compilation-argument expectation. |
 | `office/project/references.json` | References that must be added explicitly to a fresh VBProject. |
 | `office/ribbon/customUI.xml` | Canonical Office 2007 RibbonX. |
 | `office/ribbon/customUI14.xml` | Canonical Office 2010+ RibbonX. |
-| `scripts/vba-sync.ps1` | Existing PPTM ↔ canonical VBA source workflow. |
-| `scripts/office-build.ps1` | Canonical source → fresh PPTM, artifact validation, and optional PPAM workflow. |
+| `tools/frx-edit/` | Git submodule containing the pinned generic MSForms codec. |
+| `scripts/frxedit-build.ps1` | Validate/publish the codec and record build provenance. |
+| `scripts/userforms-build.ps1` | Canonical JSON/VBA/assets to a complete generated VBA import tree. |
+| `scripts/userforms-export.ps1` | Explicit, transactional native-form export back to selected canonical forms. |
+| `scripts/userforms-verify.ps1` | Pinned nine-form create/rebuild/watch/template semantic matrix. |
+| `scripts/vba-sync.ps1` | Existing PPTM and canonical VBA/UserForm synchronization workflow. |
+| `scripts/office-build.ps1` | Canonical source to fresh PPTM, artifact validation, and optional PPAM workflow. |
+| `scripts/lib/IguanaTex.UserForms.psm1` | Shared manifest, submodule, asset, codec, and semantic-comparison helpers. |
 | `scripts/lib/IguanaTex.Office.psm1` | Shared source-closure, component-import, and COM-release helpers. |
 | `scripts/lib/IguanaTex.Compile.psm1` | Compile controller and exact-process recovery boundary. |
 | `scripts/lib/IguanaTex.Compile.Worker.ps1` | Isolated PowerPoint/VBE compile worker. |
@@ -56,14 +88,42 @@ have different user-facing purposes.
 | `scripts/lib/IguanaTex.Package.psm1` | OPC/OOXML Ribbon injection and static package validation. |
 | `AppleScript/` | macOS PowerPoint integration source. |
 | `IguanaTexHelper/` | Swift package for the macOS native helper; see its own `README.md` and `DEVELOP.md`. |
-| `.build/` | Ignored disposable outputs. Never commit its contents. |
+| `.build/frxedit/` | Published `frxedit.exe` and provenance for the current run. |
+| `.build/vba-source/` | Generated `.frm/.frx` plus copied `.bas/.cls`; the complete Office import tree. |
+| `.build/userforms-verify/` | Disposable UserForm matrix reports and retained diagnostics. |
+| `.build/office/` | Generated PPTM/PPAM artifacts used by build and sync workflows. |
 
-There is deliberately no canonical PPTM, PPAM, unpacked Office package, or
-generated `vbaProject.bin` in the repository.
+There is deliberately no canonical `.frm`, `.frx`, PPTM, PPAM, unpacked Office
+package, or generated `vbaProject.bin` in the repository.
 
-## Prerequisites for Windows Office automation
+## Clone and initialize the codec submodule
 
-The sync and build scripts require:
+Clone with submodules when possible:
+
+```powershell
+git clone --recurse-submodules <repository-url>
+```
+
+For an existing checkout, after switching branches, or after pulling a commit
+that advances the gitlink, run:
+
+```powershell
+git submodule update --init --recursive
+git submodule status --recursive
+```
+
+Do not independently pull or float `tools/frx-edit` during normal IguanaTeX
+work. The default `Pinned` script mode requires the submodule to be initialized,
+at the recorded gitlink commit, and clean. `WorkingTree` mode exists only for
+deliberate local codec development and does not qualify as pinned acceptance.
+This integration tracks `https://github.com/mirinae3145/frx-edit.git` at
+`9cf15bbbde76e0251dc6d6b988911fc1cda9af4b`; the gitlink, rather than this
+explanatory sentence, remains authoritative after a future reviewed upgrade.
+
+## Development prerequisites and Windows Office automation
+
+Publishing and generating forms require Git and the .NET 8 SDK. The sync and
+Office build scripts additionally require:
 
 - Windows desktop PowerPoint;
 - Windows PowerShell 5.1 running in an STA apartment;
@@ -83,7 +143,11 @@ compile or validate it.
 
 | Goal | Command or source area |
 | --- | --- |
-| Edit canonical VBA directly | Change files under `src/`. |
+| Edit a standard module or class | Change `src/*.bas` or `src/*.cls`. |
+| Edit a UserForm | Change its manifest-listed JSON, matching `.vba`, or referenced assets, then run the UserForm build and matrix. |
+| Publish the pinned codec | `scripts/frxedit-build.ps1` |
+| Generate the complete Office import tree | `scripts/userforms-build.ps1` |
+| Verify all nine canonical forms | `scripts/userforms-verify.ps1` |
 | Synchronize an existing PPTM under `.build/office/` with `src/` | `scripts/vba-sync.ps1` |
 | Build a new PPTM without a PPTM input | `scripts/office-build.ps1 build` |
 | Validate an existing generated PPTM or PPAM without modifying the original | `scripts/office-build.ps1 validate` |
@@ -100,19 +164,34 @@ not expect `office-build.ps1` to update canonical source from an edited PPTM.
 ### VBA components and UserForms
 
 The current source tree contains 24 importable components: 10 standard modules,
-5 classes, and 9 UserForms with 9 matching FRX files. The closure validator
-requires:
+5 classes, and these 9 UserForms: `AboutBox`, `BatchEditForm`, `ErrorForm`,
+`ExternalEditorForm`, `LatexForm`, `LoadVectorGraphicsForm`, `LogFileViewer`,
+`RegenerateForm`, and `SetTempForm`.
 
-- exactly one `Attribute VB_Name` per `.bas`, `.cls`, or `.frm`;
-- the declared component name to match the filename;
-- one matching `.frx` and one matching `OleObjectBlob` reference per form;
-- no orphan `.frx` files;
-- no duplicate component names across supported source types.
+`office/forms/manifest.json` has a schema version and exactly one name/JSON/VBA
+entry for each form. The UserForm closure validator requires:
 
-FRX files are accepted opaque snapshots. Do not attempt to normalize or
-regenerate them mechanically. PowerPoint can serialize forms and FRX data
-nondeterministically, so an export may differ even when the visible form is
-unchanged.
+- exactly the manifest-listed form set, with no duplicate names or paths;
+- each JSON and same-form VBA path to use repository-relative forward slashes,
+  resolve to top-level sibling files in `src/`, and use the manifest name as its
+  basename;
+- each relative `file://` asset reference to resolve from its JSON directory,
+  remain within that form's owned `src/<FormName>/` asset directory, and name an
+  existing file;
+- every file in an owned asset directory to be referenced, with no orphan asset;
+- no unlisted top-level UserForm JSON/VBA pair;
+- generated `.frm` names, `Attribute VB_Name`, `OleObjectBlob` references, and
+  `.frx` basenames to agree;
+- no duplicate component names across the generated `.frm`, copied `.bas`, and
+  copied `.cls` files.
+
+`userforms-build.ps1` publishes FrxEdit if necessary, performs strict `create`
+and `validate` for every manifest entry, and writes the native pairs only to the
+selected staging directory (default `.build/vba-source/`). It also copies the
+canonical `.bas/.cls` files there so Office import and closure checks consume one
+complete, generated tree. A byte difference between two FRX files is not a
+semantic failure by itself; comparisons are based on strict MSForms semantics
+and form VBA.
 
 PowerPoint does not create a `ThisPresentation` host component for this
 project. The build rejects VBComponent type 100 rather than fabricating or
@@ -156,6 +235,63 @@ An `onAction` name must resolve to exactly one public or default-public Sub or
 Function in a standard `.bas` module. Do not rename callbacks in only one side
 of the Ribbon/VBA boundary.
 
+## Codec and UserForm generation
+
+The normal entry points are:
+
+```powershell
+# Validate and publish the exact submodule revision
+.\scripts\frxedit-build.ps1
+
+# Generate .frm/.frx plus copied .bas/.cls for Office import
+.\scripts\userforms-build.ps1
+
+# Run the complete nine-form semantic matrix
+.\scripts\userforms-verify.ps1
+```
+
+`frxedit-build.ps1` defaults to `-Mode Pinned`. It rejects an uninitialized
+submodule, a submodule HEAD that does not equal the recorded gitlink, or a dirty
+submodule. It publishes `src/FrxEdit.Cli/FrxEdit.Cli.csproj` as
+Release/win-x64/self-contained/single-file/untrimmed to
+`.build/frxedit/frxedit.exe`. The command reports the codec commit, .NET SDK
+version, and executable SHA-256 and records them in a provenance JSON file.
+
+`userforms-build.ps1` uses the same pinned mode by default and writes to
+`.build/vba-source/`; use `-OutputDirectory` only for a disposable alternate
+stage. `-Mode WorkingTree` on these two commands is an explicit development
+escape hatch for testing an uncommitted codec fix. Do not cite its output as a
+pinned or release result.
+
+`userforms-verify.ps1` always requires the pinned, clean codec. For every form it
+performs strict creation and validation, no-op rebuilding, patch reapplication,
+bounded watch regeneration, recreation-template generation, and semantic
+comparison. It also proves that canonical input hashes did not change. The
+matrix uses `.build/userforms-verify/` for reports; `-KeepArtifacts` retains
+detailed successful intermediates for diagnosis, while failures are always
+retained and each successful run updates `summary.json`. `-SkipWatch` is a
+focused diagnostic option, not a complete acceptance run.
+
+### Default UserForm editing sequence
+
+This is the fixed workflow for an AI agent or a contributor without prior
+repository knowledge:
+
+1. Confirm the submodule and both working-tree statuses, then locate the form in
+   `office/forms/manifest.json`.
+1. Modify only the listed canonical JSON, matching VBA, and referenced assets.
+1. Run `userforms-build.ps1` to produce and inspect a strict native
+   reconstruction.
+1. Run `userforms-verify.ps1` without `-SkipWatch` for the full nine-form matrix.
+1. Build the PPTM/PPAM and pass the native Office import, VBE compile,
+   save/reopen, package, and add-in-load gates.
+1. For a release or UI/MSForms change, perform the representative GUI/runtime
+   smoke test.
+
+Do not shortcut this sequence by editing a generated `.frm/.frx`. If a stage
+fails, use the ownership rules in "Diagnose or fix a codec defect" below before
+deciding which repository to change.
+
 ## VBA sync workflow
 
 `vba-sync.ps1` operates on exactly one non-lock `.pptm` in `.build/office/`.
@@ -165,13 +301,16 @@ zero or multiple candidates. The default fresh-build output
 root-level PPTM files are ignored.
 
 ```powershell
-# Canonical source -> existing PPTM in .build\office
+# Generated canonical source -> existing PPTM in .build\office
 .\scripts\vba-sync.ps1 import -Prune
 
-# Existing PPTM in .build\office -> canonical text source
-.\scripts\vba-sync.ps1 export
+# Preview module/class export without changing canonical files
+.\scripts\vba-sync.ps1 export -DryRun
 
-# Compare an exported staging snapshot with canonical text source
+# Explicitly promote one edited native form to JSON/VBA/assets
+.\scripts\vba-sync.ps1 export -UpdateUserForm LatexForm -DryRun
+
+# Compare modules/classes textually and UserForms semantically
 .\scripts\vba-sync.ps1 verify
 ```
 
@@ -179,16 +318,43 @@ Important options:
 
 | Option | Meaning |
 | --- | --- |
-| `-Prune` | On import, remove supported components absent from `src/`. On export, remove canonical text files absent from the PPTM and the matching FRX for a removed form. |
+| `-Prune` | On import, remove supported components absent from the generated canonical tree. On export, pruning applies to standard modules/classes; it never authorizes an implicit canonical UserForm deletion. |
 | `-DryRun` | Report import/export mutations without applying them. |
 | `-Visible` | Show the PowerPoint window used by the sync operation. |
-| `-UpdateFrx FormName` | During export, replace the named form's canonical FRX. Accepts multiple names or `all`. Existing FRX files are otherwise preserved. |
-| `-VerifyFrx` | Include byte-level FRX comparison in `verify`; this can report nondeterministic differences. |
+| `-UpdateUserForm FormName` | During export, promote only the named forms to canonical JSON/VBA/assets. Accepts multiple explicit names. All selected forms are validated before any of their canonical files are replaced. |
 
-Use `export -DryRun` before updating a broad set of canonical files. Review
-every `.frm` change and update FRX only when the form binary state was
-intentionally changed. The sync workflow handles VBA components only; it does
-not rebuild project metadata, references, RibbonX, or the OOXML package.
+`import` automatically regenerates the pinned `.build/vba-source/` tree before
+opening PowerPoint. `verify` compares `.bas/.cls` text as before, then compares
+the canonical generated forms with the PPTM export using form VBA and strict
+MSForms semantic equality; it never uses FRX byte equality. VBA text comparison
+keeps the historical byte-exact check as its first path, then permits only line
+ending, final-newline, and VBE identifier-casing normalization. String literals,
+apostrophe or `Rem` comment text, whitespace, and actual token changes still
+fail verification. `export` continues to synchronize standard modules/classes,
+but a UserForm is ignored unless it is named with `-UpdateUserForm`. Multiple
+selected forms are converted and checked in temporary storage before they are
+applied together.
+
+The retired `-UpdateFrx` and `-VerifyFrx` options intentionally produce a
+migration error. Use `-UpdateUserForm` and the always-semantic `verify` action
+instead. Always run `export -DryRun` first and inspect the JSON, VBA, and asset
+changes. Sync still does not author project metadata, references, RibbonX, or
+the OOXML package.
+
+For a directory that already contains explicitly exported native pairs, the
+lower-level equivalent is:
+
+```powershell
+.\scripts\userforms-export.ps1 `
+    -InputDirectory C:\path\to\native-export `
+    -Form LatexForm `
+    -DryRun
+```
+
+`-Form` is mandatory; there is no implicit "all" mode. The command extracts a
+strict recreation template, VBA, and referenced assets into temporary storage,
+validates every requested form, and only then replaces canonical files unless
+`-DryRun` was supplied.
 
 ## Fresh Office artifact workflow
 
@@ -222,6 +388,11 @@ The three actions are intentionally distinct:
   add-in operations, and rejects output/overwrite options.
 - `ppam` validates its PPTM input by default, then creates a staged add-in.
 
+Every action first regenerates a pinned `.build/vba-source/` tree. Source
+closure, callback resolution, import, and comparison therefore all operate on
+the same native representation derived from the manifest-listed canonical
+JSON/VBA/assets. A stale `.frm/.frx` export is never accepted as implicit input.
+
 `-OutputPath` selects a nondefault destination. `-Force` is required to replace
 an existing output. `-CompileTimeoutSeconds` and `-OfficeTimeoutSeconds` default
 to 60 and accept values from 10 through 600. `-Visible` is for diagnostics, not
@@ -244,21 +415,24 @@ intentionally replace the requested destination.
 
 The `build` action performs these stages:
 
-1. Validate canonical VBA/form closure and read project JSON.
-2. Explicitly launch a hidden PowerPoint `/AUTOMATION` process and bind COM only
+1. Publish the pinned codec, generate all native forms into
+   `.build/vba-source/`, validate the complete source closure, and read project
+   JSON.
+1. Explicitly launch a hidden PowerPoint `/AUTOMATION` process and bind COM only
    when its HWND maps to that exact PID and process start time.
-3. Create a fresh presentation and `SaveAs` macro-enabled PPTM format 25.
-4. Apply project metadata, import canonical components, and validate components
+1. Create a fresh presentation and `SaveAs` macro-enabled PPTM format 25.
+1. Apply project metadata, import the generated staging components, and validate
+   components
    and references including auto-added MSForms and the absence of Microsoft
    Scripting Runtime.
-5. Save and completely close PowerPoint. The initial slide/master/theme and
+1. Save and completely close PowerPoint. The initial slide/master/theme and
    document properties are disposable fresh scaffolding.
-6. Run the VBE compile gate in a separate helper process.
-7. Confirm that PowerPoint produced `ppt/vbaProject.bin`, its presentation
+1. Run the VBE compile gate in a separate helper process.
+1. Confirm that PowerPoint produced `ppt/vbaProject.bin`, its presentation
    relationship, and the `.bin` VBA content type.
-8. Inject both RibbonX parts by direct OPC editing, then run static package,
+1. Inject both RibbonX parts by direct OPC editing, then run static package,
    relationship, XML, and callback validation.
-9. Open/save/close the PPTM in PowerPoint, validate the package again, reopen it
+1. Open/save/close the PPTM in PowerPoint, validate the package again, reopen it
    read-only, and recheck metadata, components, references, and package state.
 
 The final PPTM has never used another PPTM as source or template.
@@ -288,11 +462,11 @@ tests after changing Office automation, package handling, references, or VBA.
 PPAM support uses PowerPoint macro-enabled add-in format 30:
 
 1. Validate the source PPTM on a temporary copy.
-2. Open the validated source and `SaveAs` a staged PPAM.
-3. Reinject RibbonX after the final PowerPoint save if Office removed or rewrote
+1. Open the validated source and `SaveAs` a staged PPAM.
+1. Reinject RibbonX after the final PowerPoint save if Office removed or rewrote
    it.
-4. Repeat VBA, Ribbon, callback, content-type, and internal-target validation.
-5. Register, load, inspect, unload, remove, and repeat the add-in cycle to prove
+1. Repeat VBA, Ribbon, callback, content-type, and internal-target validation.
+1. Register, load, inspect, unload, remove, and repeat the add-in cycle to prove
    that it can be reloaded without leaving a registration behind.
 
 PowerPoint does not provide a safe way to target the VBE Compile command at a
@@ -398,9 +572,47 @@ a fresh build. Do not edit application behavior merely to simplify automation.
 
 ### Change a UserForm
 
-Use PowerPoint/VBE when binary form state changes. Export to a disposable stage,
-review the `.frm`, and update only the intended `.frx` with `-UpdateFrx`. Keep the
-form filename, `VB_Name`, `OleObjectBlob`, and FRX basename aligned.
+Start in IguanaTeX and edit only the form's manifest-listed `.json`, matching
+`.vba`, and referenced assets. Then run:
+
+```powershell
+.\scripts\userforms-build.ps1
+.\scripts\userforms-verify.ps1
+.\scripts\office-build.ps1 build -Force
+```
+
+If a change must originate in PowerPoint/VBE, export it to disposable native
+files and use `userforms-export.ps1 -Form <name> -DryRun`, or use
+`vba-sync.ps1 export -UpdateUserForm <name> -DryRun` for the single PPTM under
+`.build/office/`. Review the regenerated JSON, VBA, and assets before running the
+command without `-DryRun`. Never directly edit the generated `.frm/.frx` in
+`.build/vba-source/` and treat it as source.
+
+### Diagnose or fix a codec defect
+
+First isolate ownership of the failure:
+
+- Incorrect canonical intent, invalid form data, form VBA, or an IguanaTeX asset
+  is fixed in IguanaTeX.
+- Valid JSON that FrxEdit reads or writes incorrectly, or native persistence that
+  PowerPoint rejects for a general MSForms reason, is a FrxEdit defect.
+- PPTM/PPAM packaging, VBProject references, RibbonX, and Office automation remain
+  IguanaTeX defects.
+
+For a codec defect, work in `tools/frx-edit` on a clean `fix-<issue>` branch.
+Reduce the IguanaTeX failure to the smallest generic MSForms fixture or invariant,
+add a permanent FrxEdit regression, fix and test FrxEdit, and publish it locally.
+Use `-Mode WorkingTree` only while exercising that candidate against the complete
+IguanaTeX matrix and native Office validation. Examples of generic invariants
+include FormStreamData/FormSiteData boundaries, `GuidAndStdFont` versus
+`GuidAndTextProps`, MultiPage/TabStrip allocation, and persisted
+FormDesignExData.
+
+Merge and push the FrxEdit fix first. In a separate IguanaTeX integration change,
+advance `tools/frx-edit` to that exact commit and rerun the pinned validation
+layers below. Do not combine an uncommitted submodule worktree and a gitlink
+update, and do not make FrxEdit depend on the IguanaTeX corpus to implement a
+product-specific workaround.
 
 ### Add a VBA component
 
@@ -432,25 +644,51 @@ must be tested in PowerPoint, not only with an XML/ZIP parser.
 
 ### Fast checks
 
-At minimum, parse every PowerShell entry point/module with the Windows
-PowerShell parser and validate source closure:
+At minimum, parse every changed PowerShell entry point/module with the Windows
+PowerShell 5.1 parser. Then generate the native staging tree and validate source
+closure:
 
 ```powershell
+.\scripts\userforms-build.ps1
+
 Import-Module .\scripts\lib\IguanaTex.Office.psm1 `
     -Force -DisableNameChecking
-Assert-VbaSourceClosure -SourceDirectory .\src
+Assert-VbaSourceClosure -SourceDirectory .\.build\vba-source
 ```
 
 Documentation-only changes do not require Office artifact regeneration, but
 commands and paths in the documentation must be checked against the actual
 parameter declarations and current tree.
 
-### Full happy path
+### Validation layers and release gate
 
-For changes affecting VBA, metadata, references, Ribbon, PowerPoint automation,
-or packaging, run:
+Validation is intentionally layered so a failure is routed to the repository
+that owns it:
+
+1. **FrxEdit unit/conformance:** exercise the generic MS-OFORMS structures and
+   generated-container invariants in `tools/frx-edit`.
+1. **IguanaTeX canonical matrix:** run all nine forms through strict create,
+   no-op, patch, bounded watch, template recreation, and semantic comparison.
+1. **Native Office build:** import the generated tree, compile in the VBE,
+   validate/package, and prove PowerPoint save/reopen (plus PPAM load cycles when
+   producing an add-in).
+1. **GUI/runtime smoke:** open representative forms, inspect expected Pages and
+   controls, and exercise representative interactions manually.
+
+Layers 1 through 3 are the ordinary release gate. Layer 4 is required for a
+release or when an MSForms/UI change warrants it; it complements rather than
+replaces the automated gates. For the full automated path, run:
 
 ```powershell
+.\scripts\frxedit-build.ps1
+
+Push-Location .\tools\frx-edit
+dotnet run --project .\tests\FrxEdit.Tests\FrxEdit.Tests.csproj -c Release
+.\scripts\test-generated-container-pipeline.ps1 -Configuration Release
+Pop-Location
+
+.\scripts\userforms-verify.ps1
+
 .\scripts\office-build.ps1 build -Force `
     -PpamOutputPath .\.build\office\IguanaTeX.ppam
 
@@ -461,10 +699,10 @@ or packaging, run:
     -InputPath .\.build\office\IguanaTeX.ppam
 ```
 
-The acceptance chain is canonical-only input → fresh PPTM → metadata and
-references → component/form import → real VBE compile → VBA package closure →
-Ribbon injection → static package validation → PowerPoint save/reopen → optional
-PPAM conversion and add-in reload.
+The acceptance chain is pinned codec plus canonical JSON/VBA/assets, generated
+native source, fresh PPTM, metadata/references, component/form import, real VBE
+compile, VBA package closure, Ribbon injection, static package validation,
+PowerPoint save/reopen, and optional PPAM conversion/add-in reload.
 
 ### Negative tests for compile or ownership changes
 
@@ -493,20 +731,25 @@ LaTeX, Ghostscript, ImageMagick, and optional helper dependencies as applicable.
 Before editing:
 
 1. Read `README.md`, this file, the target script, and relevant JSON/XML source.
-2. Run `git status` and preserve unrelated tracked changes and untracked files.
-3. Inspect history when a behavior or serialization choice is unclear.
-4. Decide explicitly whether the task belongs to sync, fresh build, package
-   validation, runtime VBA, or a platform helper.
+1. Initialize the submodule, then run `git status` in both repositories and
+   preserve unrelated tracked changes and untracked files.
+1. Inspect history when a behavior or serialization choice is unclear; use
+   `3bbfb96` and `7a2b8de` when investigating the source transition.
+1. Route the task explicitly to canonical form data, the generic codec, sync,
+   fresh build, package validation, runtime VBA, or a platform helper.
 
 While editing:
 
-- Treat `src/` and `office/` as authoritative; never reverse-engineer source
-  state from an arbitrary binary artifact when canonical input exists.
-- Keep generated PPTM, PPAM, unpacked packages, protocol files, screenshots, and
-  diagnostic dumps out of the repository root and source directories.
+- Treat manifest-listed JSON/VBA/assets, `src/*.bas`, `src/*.cls`, and other
+  `office/` metadata as authoritative; never reverse-engineer source state from
+  an arbitrary binary artifact when canonical input exists.
+- Keep generated `.frm/.frx`, published codecs, PPTM, PPAM, unpacked packages,
+  protocol files, screenshots, and diagnostic dumps under `.build/` or another
+  disposable directory.
 - Do not broaden a developer-infrastructure task into an IguanaTeX behavior,
   UI, callback-name, or Ribbon-layout refactor.
-- Preserve opaque FRX data unless a form change explicitly requires updating it.
+- Never edit or preserve an opaque FRX as canonical state. Export an explicitly
+  selected native form through the strict transactional workflow when needed.
 - Do not terminate PowerPoint by executable name. Exact PID and start-time
   verification are mandatory.
 - Do not weaken validation merely to make a generated artifact pass.
@@ -518,12 +761,12 @@ While editing:
 Before handing off:
 
 1. Run validation proportional to the affected layer.
-2. Check that no PowerPoint process or temporary Office directory owned by the
+1. Check that no PowerPoint process or temporary Office directory owned by the
    test remains.
-3. Review `git diff --check` and `git status`.
-4. Confirm `.build/` and user-supplied local files are not staged.
-5. Report implemented behavior, reused code, commands actually run, passed
-   criteria, manual checks, and remaining Office/VBE risks.
+1. Review `git diff --check`, the IguanaTeX status, and the submodule status.
+1. Confirm `.build/` and user-supplied local files are not staged.
+1. Report implemented behavior, reused code, codec revision, commands actually
+   run, criteria passed, manual checks, and remaining Office/VBE risks.
 
 ## Commit and review guidance
 
@@ -534,7 +777,9 @@ Do not commit generated Office artifacts or temporary unpacked packages.
 Reviewers should pay particular attention to:
 
 - accidental use of a PPTM as fresh-build input;
-- source/component/FRX closure;
+- manifest, asset, component, and generated form closure;
+- an uninitialized, floating, mismatched, or dirty codec submodule;
+- direct edits to generated `.frm/.frx` or byte-level FRX assertions;
 - explicit versus implicit references;
 - exact COM process ownership and cleanup paths;
 - compiler-dialog and timeout behavior;
@@ -550,7 +795,9 @@ Reviewers should pay particular attention to:
 - A compile-error modal is not surfaced by `CommandBars.Execute()` as an
   exception.
 - COM can reject calls while a modal dialog exists.
-- UserForm text and FRX serialization can change across export/import cycles.
+- Native UserForm text and FRX serialization can change across export/import
+  cycles, so canonical verification uses form VBA and MSForms semantics rather
+  than FRX byte identity.
 - The PPTM is first injected only after its build session closes, then reopened
   and saved to prove Ribbon persistence. PPAM conversion reinjects after its
   final `SaveAs` because PowerPoint may remove or rewrite Ribbon parts.

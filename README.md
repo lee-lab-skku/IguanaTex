@@ -153,17 +153,31 @@ For more details (e.g., how to **upgrade** or **uninstall**), please see [Tsung-
 
 The repository does not use a checked-in `.pptm` as source. VBA, project
 metadata, references, and RibbonX are maintained in `src/` and `office/`.
-Windows developers can create disposable Office artifacts with:
+UserForms are canonical JSON templates, matching `.vba` files, and referenced
+assets; native `.frm/.frx` pairs are generated and never checked in.
+
+Clone with `--recurse-submodules`, or initialize an existing checkout before
+building:
+
+```powershell
+git submodule update --init --recursive
+```
+
+The pinned FrxEdit submodule is published automatically and all nine UserForms
+are staged under `.build/vba-source/` by the Office workflow. Windows developers
+can create disposable Office artifacts with:
 
 ```powershell
 .\scripts\office-build.ps1 build
 .\scripts\office-build.ps1 validate -InputPath .\.build\office\IguanaTeX.pptm
 ```
 
-PowerPoint and Windows PowerShell 5.1 are required, and **Trust access to the
-VBA project object model** must be enabled. The separate `vba-sync.ps1`
-workflow is only for synchronizing an existing PPTM in `.build/office/` with
-`src/`.
+The .NET 8 SDK is required to publish the codec. PowerPoint and Windows
+PowerShell 5.1 are required for Office automation, and **Trust access to the VBA
+project object model** must be enabled. The separate `vba-sync.ps1` workflow is
+only for synchronizing an existing PPTM in `.build/office/` with canonical
+source; UserForms are compared semantically and require explicit selection
+before an export can update their JSON/VBA/assets.
 
 The Docker image reference used by runtime VBA has one runtime setting,
 `DockerImage`. Its default is `DEFAULT_DOCKER_IMAGE` in `src/Defaults.bas`
@@ -173,7 +187,8 @@ setting.
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing canonical sources or
 automation. It documents the fork-specific history, complete repository map,
 sync and fresh-build CLI, Office/VBE safety boundaries, validation matrix,
-UserForm/FRX policy, and instructions for both human and AI contributors.
+canonical UserForm workflow, FrxEdit escalation rules, and instructions for both
+human and AI contributors.
 
 ## Tips, Bugs, and Known Issues
 
