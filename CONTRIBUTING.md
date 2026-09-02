@@ -29,18 +29,16 @@ canonical files.
 
 ## Fork-specific history
 
-All changes beginning with commit `0d56666` are developer infrastructure for
-this fork. They do not intentionally change IguanaTeX application behavior.
+The fork evolved through four related milestones. The history references below
+identify the relevant spans without treating every intermediate snapshot as a
+separate supported state.
 
-| Commit | Developer-facing change | Consequence |
+| Milestone | History | Result |
 | --- | --- | --- |
-| `0d56666` | Added `scripts/vba-sync.ps1`. | Existing PPTM containers can be imported from, exported to, or compared with canonical VBA files. |
-| `a41a394` | Moved VBA modules, classes, forms, and form binaries from the repository root into `src/`; reserialized form snapshots; removed `ExportVBA.bas`. | `src/` is canonical. Documentation or automation must not assume root-level VBA files or the old exporter macro. |
-| `d3991fa` | Added canonical project metadata, reference declarations, and both RibbonX versions under `office/`. | Office state that cannot be represented by `.bas`, `.cls`, or `.frm` files is now tracked explicitly. |
-| `feb21f9` | Added the fresh PPTM/PPAM build pipeline, isolated VBE compile validation, package/Ribbon validation, PowerPoint round trips, and shared VBA import helpers. | A validated macro-enabled Office artifact can be produced without using any PPTM as build input. |
-| `ec95079` | Moved the existing-container sync lookup from the repository root to `.build/office/`. | Build and sync now use the same ignored artifact directory; root-level PPTM files are not sync inputs. |
-| `7a2b8de` | Last commit before the UserForm source transition. | This is the previous binary-canonical baseline to consult when migration history is required. |
-| `3bbfb96` (2026-09-02) | Replaced canonical `.frm/.frx` pairs with JSON templates, separate VBA, and extracted assets. | This is the exact point where authority moved to `src/*.json`, matching `src/*.vba`, and referenced assets. Native form pairs are generated artifacts from this commit onward. |
+| Canonical VBA and sync infrastructure | Began at `0d56666` and was consolidated by `ec95079`. | Canonical modules and classes live under `src/`; existing-container sync uses the ignored Office artifact directory rather than root-level files. |
+| Fresh Office build and validation | Canonical Office metadata began at `d3991fa`; the build pipeline arrived at `feb21f9` and was hardened through `7a2b8de`. | Fresh PPTM/PPAM artifacts can be reconstructed from canonical source and checked through isolated VBE compile, package/Ribbon, PowerPoint round-trip, and optional validation-bypass workflows. |
+| Docker-only rendering | Began at `f04677f` and was completed on the merged development line at `d130067`. | Generate/ReGenerate and vector conversions use one network-disabled Docker job with no host-renderer fallback. |
+| Canonical UserForms | Began at `3bbfb96` and was integrated through `7719d0d`. | JSON, matching VBA, and referenced assets are authoritative; the pinned codec generates native `.frm/.frx` pairs for sync and Office workflows. |
 
 When changing this infrastructure, preserve the separation between the sync
 workflow and the fresh-build workflow. They share low-level import helpers but
@@ -79,7 +77,7 @@ lock file containing the same revision.
 | `scripts/userforms-export.ps1` | Explicit, transactional native-form export back to selected canonical forms. |
 | `scripts/userforms-verify.ps1` | Pinned nine-form create/rebuild/watch/template semantic matrix. |
 | `scripts/vba-sync.ps1` | Existing PPTM and canonical VBA/UserForm synchronization workflow. |
-| `scripts/office-build.ps1` | Canonical source to fresh PPTM, artifact validation, and optional PPAM workflow. |
+| `scripts/office-build.ps1` | Canonical source to fresh PPTM/PPAM artifacts and artifact validation. |
 | `scripts/lib/IguanaTex.UserForms.psm1` | Shared manifest, submodule, asset, codec, and semantic-comparison helpers. |
 | `scripts/lib/IguanaTex.Office.psm1` | Shared source-closure, component-import, and COM-release helpers. |
 | `scripts/lib/IguanaTex.Compile.psm1` | Compile controller and exact-process recovery boundary. |
@@ -96,29 +94,14 @@ lock file containing the same revision.
 There is deliberately no canonical `.frm`, `.frx`, PPTM, PPAM, unpacked Office
 package, or generated `vbaProject.bin` in the repository.
 
-## Clone and initialize the codec submodule
+## Codec submodule state
 
-Clone with submodules when possible:
-
-```powershell
-git clone --recurse-submodules <repository-url>
-```
-
-For an existing checkout, after switching branches, or after pulling a commit
-that advances the gitlink, run:
-
-```powershell
-git submodule update --init --recursive
-git submodule status --recursive
-```
-
-Do not independently pull or float `tools/frx-edit` during normal IguanaTeX
-work. The default `Pinned` script mode requires the submodule to be initialized,
-at the recorded gitlink commit, and clean. `WorkingTree` mode exists only for
-deliberate local codec development and does not qualify as pinned acceptance.
-This integration tracks `https://github.com/mirinae3145/frx-edit.git` at
-`9cf15bbbde76e0251dc6d6b988911fc1cda9af4b`; the gitlink, rather than this
-explanatory sentence, remains authoritative after a future reviewed upgrade.
+Before running codec, UserForm, sync, or Office workflows, make sure
+`tools/frx-edit` is initialized, at the revision recorded by this repository,
+recursively initialized where required, and clean. Do not independently float
+the submodule during normal IguanaTeX work. The default `Pinned` script mode
+enforces that state. `WorkingTree` mode exists only for deliberate local codec
+development and does not qualify as pinned acceptance.
 
 ## Development prerequisites and Windows Office automation
 
@@ -133,7 +116,7 @@ Office build scripts additionally require:
 Close unrelated PowerPoint windows before running the scripts. PowerPoint is
 effectively single-instance in several automation scenarios. The build and
 compile code refuses ambiguous COM ownership, but closing other instances is
-the most reliable way to obtain a successful isolated run.
+the most reliable way to achieve a successful isolated run.
 
 The scripts set `AutomationSecurity` to force-disable macros before opening an
 artifact. They never need to execute a macro inside the target project to
@@ -310,8 +293,9 @@ repository knowledge:
 1. Run `userforms-build.ps1` to produce and inspect a strict native
    reconstruction.
 1. Run `userforms-verify.ps1` without `-SkipWatch` for the full nine-form matrix.
-1. Build the PPTM/PPAM and pass the native Office import, VBE compile,
-   save/reopen, package, and add-in-load gates.
+1. Build the PPTM and pass the native Office import, VBE compile, save/reopen,
+   and package gates. During ordinary development, PPAM generation and add-in
+   load/reload validation may be omitted.
 1. For a release or UI/MSForms change, perform the representative GUI/runtime
    smoke test.
 
@@ -449,9 +433,8 @@ The `build` action performs these stages:
    when its HWND maps to that exact PID and process start time.
 1. Create a fresh presentation and `SaveAs` macro-enabled PPTM format 25.
 1. Apply project metadata, import the generated staging components, and validate
-   components
-   and references including auto-added MSForms and the absence of Microsoft
-   Scripting Runtime.
+   components and references, including auto-added MSForms and the absence of
+   Microsoft Scripting Runtime.
 1. Save and completely close PowerPoint. The initial slide/master/theme and
    document properties are disposable fresh scaffolding.
 1. Run the VBE compile gate in a separate helper process.
@@ -635,8 +618,9 @@ include FormStreamData/FormSiteData boundaries, `GuidAndStdFont` versus
 `GuidAndTextProps`, MultiPage/TabStrip allocation, and persisted
 FormDesignExData.
 
-Merge and push the FrxEdit fix first. In a separate IguanaTeX integration change,
-advance `tools/frx-edit` to that exact commit and rerun the pinned validation
+Submit and land the FrxEdit fix through that repository's normal review process.
+After the reviewed commit is available, advance `tools/frx-edit` to that exact
+commit in a separate IguanaTeX integration change and rerun the pinned validation
 layers below. Do not combine an uncommitted submodule worktree and a gitlink
 update, and do not make FrxEdit depend on the IguanaTeX corpus to implement a
 product-specific workaround.
@@ -702,9 +686,10 @@ that owns it:
 1. **GUI/runtime smoke:** open representative forms, inspect expected Pages and
    controls, and exercise representative interactions manually.
 
-Layers 1 through 3 are the ordinary release gate. Layer 4 is required for a
-release or when an MSForms/UI change warrants it; it complements rather than
-replaces the automated gates. For the full automated path, run:
+Layers 1 through 3 form the automated gate. During ordinary development, run the
+layers applicable to the change. Release approval requires the complete
+automated gate and the applicable layer 4 GUI/runtime smoke test. For the full
+automated path, run:
 
 ```powershell
 .\scripts\frxedit-build.ps1
@@ -726,10 +711,12 @@ Pop-Location
     -InputPath .\.build\office\IguanaTeX.ppam
 ```
 
-The acceptance chain is pinned codec plus canonical JSON/VBA/assets, generated
-native source, fresh PPTM, metadata/references, component/form import, real VBE
-compile, VBA package closure, Ribbon injection, static package validation,
-PowerPoint save/reopen, and optional PPAM conversion/add-in reload.
+The automated acceptance chain is pinned codec plus canonical JSON/VBA/assets,
+generated native source, fresh PPTM, metadata/references, component/form import,
+real VBE compile, VBA package closure, Ribbon injection, static package
+validation, and PowerPoint save/reopen. PPAM generation and add-in load/reload
+validation may be omitted during ordinary development, but both are mandatory
+when preparing a distributable release.
 
 ### Negative tests for compile or ownership changes
 
@@ -760,8 +747,9 @@ input formats; failure cases must not fall back to host renderer executables.
 Before editing:
 
 1. Read `README.md`, this file, the target script, and relevant JSON/XML source.
-1. Initialize the submodule, then run `git status` in both repositories and
-   preserve unrelated tracked changes and untracked files.
+1. Confirm that the submodule is initialized, current at the recorded revision,
+   and clean; inspect repository status and preserve unrelated tracked changes
+   and untracked files.
 1. Inspect history when a behavior or serialization choice is unclear; use
    `3bbfb96` and `7a2b8de` when investigating the source transition.
 1. Route the task explicitly to canonical form data, the generic codec, sync,
