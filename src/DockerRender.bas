@@ -5,6 +5,7 @@ Private Const TAR_BLOCK_SIZE As Long = 512
 Private Const DOCKER_JOB_FILENAME As String = "job.sh"
 Private Const DOCKER_PAYLOAD_SUFFIX As String = "_docker_payload.tar"
 Private Const DOCKER_ARTIFACT_SUFFIX As String = "_docker_artifact.tmp"
+Private Const DOCKER_ENUM_ATTRIBUTES As Long = vbNormal Or vbReadOnly Or vbHidden
 
 Public Type DockerRenderRequest
     FilePrefix As String
@@ -640,8 +641,7 @@ Private Sub StageDockerAuxiliaryFiles(ByVal SourcePath As String, _
     Dim Candidate As String
     Dim FullPath As String
     Dim Attributes As Long
-    Candidate = Dir(SourcePath & "*", vbNormal Or vbReadOnly Or vbHidden Or _
-        vbSystem Or vbArchive)
+    Candidate = Dir(SourcePath & "*", DOCKER_ENUM_ATTRIBUTES)
     Do While Candidate <> vbNullString
         FullPath = SourcePath & Candidate
         Attributes = GetAttr(FullPath)
@@ -772,8 +772,7 @@ Private Sub CollectDockerWorkspaceFiles(ByVal WorkspacePath As String, _
     Dim Candidate As String
     Dim FullPath As String
     Dim Attributes As Long
-    Candidate = Dir(WorkspacePath & "*", vbNormal Or vbReadOnly Or vbHidden Or _
-        vbSystem Or vbArchive)
+    Candidate = Dir(WorkspacePath & "*", DOCKER_ENUM_ATTRIBUTES)
     Do While Candidate <> vbNullString
         FullPath = WorkspacePath & Candidate
         Attributes = GetAttr(FullPath)
